@@ -105,8 +105,8 @@ export class PiSessionService {
 
   async prompt(sessionId: string, text: string, streamingBehavior?: "steer" | "followUp"): Promise<void> {
     const session = await this.getOrOpen(sessionId);
-    const behavior = session.isStreaming ? streamingBehavior ?? "followUp" : undefined;
-    this.publishActivity(session, behavior === "steer" ? "steering queued" : behavior === "followUp" ? "message queued" : "prompt accepted", "active");
+    const behavior = session.isStreaming || session.isCompacting ? streamingBehavior ?? "followUp" : undefined;
+    this.publishActivity(session, session.isCompacting ? "message queued during compaction" : behavior === "steer" ? "steering queued" : behavior === "followUp" ? "message queued" : "prompt accepted", "active");
     void session.prompt(text, behavior === undefined ? undefined : { streamingBehavior: behavior }).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       this.publishActivity(session, "error", "error", message);

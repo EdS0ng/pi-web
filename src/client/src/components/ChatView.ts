@@ -27,6 +27,8 @@ export class ChatView extends LitElement {
   @property({ type: Number }) messageTotal = 0;
   @property({ type: Boolean }) hasMore = false;
   @property({ type: Boolean }) loadingMore = false;
+  @property({ type: Boolean }) isCompacting = false;
+  @property({ type: Number }) pendingMessageCount = 0;
   @property({ attribute: false }) onLoadMore?: () => void;
   @query(".chat") private chat?: HTMLDivElement;
   @state() private pinnedToBottom = true;
@@ -60,8 +62,20 @@ export class ChatView extends LitElement {
           ${groupChatMessages(this.messages, this.messageStart).map((group) => group.kind === "message"
             ? this.renderMessage(group.message, group.index)
             : this.renderMessageGroup(group.messages, group.startIndex))}
+          ${this.renderSessionActivity()}
         </div>
       </div>
+    `;
+  }
+
+  private renderSessionActivity() {
+    if (!this.isCompacting) return null;
+    return html`
+      <aside class="session-activity compacting" aria-live="polite">
+        <strong>Compacting history…</strong>
+        <span>The agent is summarizing earlier context. New prompts will be queued until compaction finishes.</span>
+        ${this.pendingMessageCount > 0 ? html`<small>${this.pendingMessageCount} queued ${this.pendingMessageCount === 1 ? "message" : "messages"}</small>` : null}
+      </aside>
     `;
   }
 

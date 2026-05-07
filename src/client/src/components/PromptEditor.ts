@@ -11,6 +11,7 @@ export class PromptEditor extends LitElement {
   @property() sessionId?: string;
   @property() cwd?: string;
   @property({ type: Boolean }) canSteer = false;
+  @property({ type: Boolean }) isCompacting = false;
   @property({ attribute: false }) onSend?: (text: string, streamingBehavior?: "steer" | "followUp") => void;
   @property({ attribute: false }) onStopSession?: () => void;
   @query("textarea") private textarea?: HTMLTextAreaElement;
@@ -35,6 +36,7 @@ export class PromptEditor extends LitElement {
   override render() {
     const inputMode = inputModeForDraft(this.draft);
     const shellMode = inputMode.kind === "shell";
+    const queuesInput = this.canSteer || this.isCompacting;
     return html`
       <footer class=${shellMode ? "shell-mode" : ""}>
         <div class="editor-wrap">
@@ -48,11 +50,12 @@ export class PromptEditor extends LitElement {
             placeholder="Message pi... Use / for commands, @ for files"
           ></textarea>
           ${shellMode ? html`<div class="mode-hint">Shell command${inputMode.excludeFromContext ? " · excluded from context" : ""}</div>` : null}
+          ${this.isCompacting && !shellMode ? html`<div class="mode-hint">Compacting history · message will be queued</div>` : null}
           <autocomplete-menu .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
         </div>
         <div class="actions">
-          <button ?disabled=${this.disabled} title=${this.canSteer ? "Queue after the current response" : "Send message"} @click=${() => { this.send("followUp"); }}>${this.canSteer ? "Queue" : "Send"}</button>
-          ${this.canSteer ? html`<button ?disabled=${this.disabled} title="Steer the current response before the next model call" @click=${() => { this.send("steer"); }}>Steer</button>` : null}
+          <button ?disabled=${this.disabled} title=${queuesInput ? "Queue until the current activity finishes" : "Send message"} @click=${() => { this.send("followUp"); }}>${queuesInput ? "Queue" : "Send"}</button>
+          ${this.canSteer && !this.isCompacting ? html`<button ?disabled=${this.disabled} title="Steer the current response before the next model call" @click=${() => { this.send("steer"); }}>Steer</button>` : null}
           <button ?disabled=${this.disabled} title="Stop only this Pi session from continuing" @click=${() => this.onStopSession?.()}>Stop session</button>
         </div>
       </footer>
@@ -144,7 +147,7 @@ export class PromptEditor extends LitElement {
     }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      this.send(this.canSteer ? "followUp" : undefined);
+      this.send(this.canSteer || this.isCompacting ? "followUp" : undefined);
     }
   }
 
@@ -160,7 +163,7 @@ export class PromptEditor extends LitElement {
     this.draft = "";
     if (this.sessionId !== undefined && this.sessionId !== "") clearDraft(this.sessionId);
     this.completions = [];
-    this.onSend?.(text, this.canSteer ? streamingBehavior : undefined);
+    this.onSend?.(text, this.canSteer || this.isCompacting ? streamingBehavior : undefined);
   }
 
   static override styles = promptEditorStyles;

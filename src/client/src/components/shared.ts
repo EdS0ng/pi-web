@@ -69,6 +69,10 @@ export const chatStyles = css`
   .group-msg.system { color: #ff7b72; }
   .group-msg.bash { color: #3fb950; }
   .history-boundary { display: grid; gap: 3px; margin: 0 0 14px; color: #8b949e; font-size: 12px; text-align: center; }
+  .session-activity { display: grid; gap: 4px; margin: 0 0 14px; padding: 12px; border: 1px solid #30363d; border-radius: 10px; background: #161b22; color: #e6edf3; }
+  .session-activity.compacting { border-color: #a371f7; background: #21132f; }
+  .session-activity strong { color: #d2a8ff; }
+  .session-activity span, .session-activity small { color: #8b949e; }
   .history-boundary small { color: #6e7681; }
   .label { display: block; margin-bottom: 8px; color: #8b949e; font-size: 12px; text-transform: uppercase; }
   formatted-text.part { display: block; }
