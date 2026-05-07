@@ -8,6 +8,7 @@ import "./WorkspaceList";
 import "./SessionList";
 import "./ChatView";
 import "./Composer";
+import { normalizeMessages, appendText, textMessage } from "../chatMessages";
 import { appStyles, type ChatLine } from "./shared";
 
 @customElement("pi-web-poc")
@@ -112,23 +113,19 @@ export class PiWebApp extends LitElement {
 
   private applyEvent(event: SessionUiEvent) {
     if (event.type === "assistant.delta") {
-      const lines = [...this.messages];
-      const last = lines.at(-1);
-      if (last?.role === "assistant") last.text += event.text;
-      else lines.push({ role: "assistant", text: event.text });
-      this.messages = lines;
+      this.messages = appendText(this.messages, "assistant", event.text);
     } else if (event.type === "tool.start") {
-      this.messages = [...this.messages, { role: "tool", text: `▶ ${event.toolName}` }];
+      this.messages = [...this.messages, { role: "tool", parts: [{ type: "toolCall", toolName: event.toolName, summary: "" }] }];
     } else if (event.type === "tool.end") {
-      this.messages = [...this.messages, { role: "tool", text: `${event.isError ? "✖" : "✓"} ${event.toolName}` }];
+      this.messages = [...this.messages, textMessage("tool", `${event.isError ? "✖" : "✓"} ${event.toolName}`)];
     } else if (event.type === "session.error") {
-      this.messages = [...this.messages, { role: "system", text: event.message }];
+      this.messages = [...this.messages, textMessage("system", event.message)];
     }
   }
 
   private async send(text: string) {
     if (!this.selectedSession) return;
-    this.messages = [...this.messages, { role: "user", text }];
+    this.messages = [...this.messages, textMessage("user", text)];
     try {
       await api.prompt(this.selectedSession.id, text);
     } catch (error) {
@@ -181,11 +178,4 @@ export class PiWebApp extends LitElement {
   }
 
   static styles = appStyles;
-}
-
-function normalizeMessages(messages: any[]): ChatLine[] {
-  return messages.map((message) => ({
-    role: message.role === "assistant" ? "assistant" : message.role === "user" ? "user" : "system",
-    text: typeof message.content === "string" ? message.content : JSON.stringify(message.content, null, 2),
-  }));
 }
