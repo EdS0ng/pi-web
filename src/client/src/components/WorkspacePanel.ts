@@ -9,6 +9,7 @@ export class WorkspacePanel extends LitElement {
   @property({ attribute: false }) workspace: Workspace | undefined;
   @property() tool: QualifiedContributionId = "core:workspace.files";
   @property({ attribute: false }) panels: QualifiedWorkspacePanelContribution[] = [];
+  @property({ type: Boolean }) hideToolTabs = false;
   @property({ attribute: false }) fileTree: FileTreeEntry[] = [];
   @property({ attribute: false }) expandedDirs: Record<string, FileTreeEntry[]> = {};
   @property({ attribute: false }) selectedFilePath: string | undefined;
@@ -33,11 +34,13 @@ export class WorkspacePanel extends LitElement {
     const selectedPanel = visiblePanels.find((panel) => panel.id === this.tool) ?? visiblePanels[0];
     return html`
       <header>
-        <div class="tabs">
-          ${visiblePanels.map((panel) => html`
-            <button class=${selectedPanel?.id === panel.id ? "selected" : ""} @click=${() => { this.onSelectTool(panel.id); }}>${panel.title}</button>
-          `)}
-        </div>
+        ${this.hideToolTabs ? null : html`
+          <div class="tabs">
+            ${visiblePanels.map((panel) => html`
+              <button class=${selectedPanel?.id === panel.id ? "selected" : ""} @click=${() => { this.onSelectTool(panel.id); }}>${panel.title}</button>
+            `)}
+          </div>
+        `}
         <small title=${workspace.path}>${workspace.label}</small>
       </header>
       ${selectedPanel === undefined ? html`<section class="empty">No workspace panels registered.</section>` : selectedPanel.render(this.createPanelContext(workspace))}

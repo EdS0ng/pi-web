@@ -21,7 +21,7 @@ export interface AppState {
   actionPaletteOpen: boolean;
   projectDialogOpen: boolean;
   workspaceTool: QualifiedContributionId;
-  mainView: "chat" | QualifiedContributionId;
+  mainView: "navigation" | "chat" | QualifiedContributionId;
   fileTree: FileTreeEntry[];
   expandedDirs: Record<string, FileTreeEntry[]>;
   selectedFilePath: string | undefined;

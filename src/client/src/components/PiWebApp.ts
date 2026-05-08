@@ -138,7 +138,7 @@ export class PiWebApp extends LitElement {
       workspaceId: this.state.selectedWorkspace?.id,
       sessionId: this.state.selectedSession?.id,
       tool: this.state.workspaceTool,
-      view: this.state.mainView,
+      view: this.state.mainView === "navigation" ? undefined : this.state.mainView,
       file: this.state.selectedFilePath,
       diff: this.state.selectedDiffPath,
     });
@@ -152,6 +152,12 @@ export class PiWebApp extends LitElement {
   }
 
   private selectMainView(view: AppState["mainView"]) {
+    if (view === "navigation") {
+      this.setState({ mainView: view });
+      this.updateUrl();
+      this.git.updatePolling();
+      return;
+    }
     this.setState({ mainView: view, workspaceTool: view === "chat" ? this.state.workspaceTool : view });
     this.updateUrl();
     if (view !== "chat") this.refreshSelectedWorkspaceTool(view);
@@ -178,8 +184,25 @@ export class PiWebApp extends LitElement {
     if (tool === "core:workspace.git") void this.git.refreshGit();
   }
 
-  private renderWorkspacePanel() {
-    return html`<workspace-panel .workspace=${this.state.selectedWorkspace} .tool=${this.state.workspaceTool} .panels=${this.visibleWorkspacePanels()} .fileTree=${this.state.fileTree} .expandedDirs=${this.state.expandedDirs} .selectedFilePath=${this.state.selectedFilePath} .selectedFileContent=${this.state.selectedFileContent} .fileTreeStale=${this.state.fileTreeStale} .gitStatus=${this.state.gitStatus} .selectedDiffPath=${this.state.selectedDiffPath} .selectedDiff=${this.state.selectedDiff} .selectedStagedDiff=${this.state.selectedStagedDiff} .gitStale=${this.state.gitStale} .onSelectTool=${(tool: QualifiedContributionId) => { this.selectWorkspaceTool(tool); }} .onRefreshFiles=${() => this.files.refreshFiles()} .onExpandDir=${(path: string) => this.files.expandDir(path)} .onSelectFile=${(path: string) => this.files.selectFile(path)} .onRefreshGit=${() => this.git.refreshGit()} .onSelectDiff=${(path: string) => this.git.selectDiff(path)}></workspace-panel>`;
+  private renderWorkspacePanel(hideToolTabs = false) {
+    return html`<workspace-panel .workspace=${this.state.selectedWorkspace} .tool=${this.state.workspaceTool} .panels=${this.visibleWorkspacePanels()} .hideToolTabs=${hideToolTabs} .fileTree=${this.state.fileTree} .expandedDirs=${this.state.expandedDirs} .selectedFilePath=${this.state.selectedFilePath} .selectedFileContent=${this.state.selectedFileContent} .fileTreeStale=${this.state.fileTreeStale} .gitStatus=${this.state.gitStatus} .selectedDiffPath=${this.state.selectedDiffPath} .selectedDiff=${this.state.selectedDiff} .selectedStagedDiff=${this.state.selectedStagedDiff} .gitStale=${this.state.gitStale} .onSelectTool=${(tool: QualifiedContributionId) => { this.selectWorkspaceTool(tool); }} .onRefreshFiles=${() => this.files.refreshFiles()} .onExpandDir=${(path: string) => this.files.expandDir(path)} .onSelectFile=${(path: string) => this.files.selectFile(path)} .onRefreshGit=${() => this.git.refreshGit()} .onSelectDiff=${(path: string) => this.git.selectDiff(path)}></workspace-panel>`;
+  }
+
+  private renderNavigationPanel(autoSwitchToChat: boolean) {
+    const openChatAfter = (action: () => Promise<void>) => this.withChatScrollTransition(async () => {
+      await action();
+      if (autoSwitchToChat) this.setState({ mainView: "chat" });
+      if (autoSwitchToChat) this.updateUrl();
+    });
+    return html`
+      <header>
+        <strong>Pi Web POC</strong>
+        <button @click=${() => { this.setState({ projectDialogOpen: true }); }}>+ Project</button>
+      </header>
+      <project-list .projects=${this.state.projects} .selected=${this.state.selectedProject} .onSelect=${(project: Project) => this.withChatScrollTransition(() => this.workspaces.selectProject(project))} .onClose=${(project: Project) => this.projects.closeProject(project.id)}></project-list>
+      <workspace-list .workspaces=${this.state.workspaces} .selected=${this.state.selectedWorkspace} .onSelect=${(workspace: Workspace) => openChatAfter(() => this.workspaces.selectWorkspace(workspace))}></workspace-list>
+      <session-list .sessions=${this.state.sessions} .statuses=${this.state.sessionStatuses} .activities=${this.state.sessionActivities} .selected=${this.state.selectedSession} .canStart=${!!this.state.selectedWorkspace} .onStart=${() => openChatAfter(() => this.sessions.startSession())} .onSelect=${(session: SessionInfo) => openChatAfter(() => this.sessions.selectSession(session))} .onArchive=${(session: SessionInfo) => this.sessions.archiveSession(session)} .onRestore=${(session: SessionInfo) => openChatAfter(() => this.sessions.restoreSession(session))}></session-list>
+    `;
   }
 
   private visibleWorkspacePanels(): QualifiedWorkspacePanelContribution[] {
@@ -216,30 +239,24 @@ export class PiWebApp extends LitElement {
     const state = this.state;
     return html`
       <div class="shell">
-        <aside>
-          <header>
-            <strong>Pi Web POC</strong>
-            <button @click=${() => { this.setState({ projectDialogOpen: true }); }}>+ Project</button>
-          </header>
-          <project-list .projects=${state.projects} .selected=${state.selectedProject} .onSelect=${(project: Project) => this.withChatScrollTransition(() => this.workspaces.selectProject(project))} .onClose=${(project: Project) => this.projects.closeProject(project.id)}></project-list>
-          <workspace-list .workspaces=${state.workspaces} .selected=${state.selectedWorkspace} .onSelect=${(workspace: Workspace) => this.withChatScrollTransition(() => this.workspaces.selectWorkspace(workspace))}></workspace-list>
-          <session-list .sessions=${state.sessions} .statuses=${state.sessionStatuses} .activities=${state.sessionActivities} .selected=${state.selectedSession} .canStart=${!!state.selectedWorkspace} .onStart=${() => this.withChatScrollTransition(() => this.sessions.startSession())} .onSelect=${(session: SessionInfo) => this.withChatScrollTransition(() => this.sessions.selectSession(session))} .onArchive=${(session: SessionInfo) => this.sessions.archiveSession(session)} .onRestore=${(session: SessionInfo) => this.sessions.restoreSession(session)}></session-list>
-        </aside>
-        <main class=${state.mainView === "chat" ? "chat-view" : "workspace-view"}>
+        <aside>${this.renderNavigationPanel(false)}</aside>
+        <main class=${state.mainView === "chat" ? "chat-view" : state.mainView === "navigation" ? "navigation-view" : "workspace-view"}>
           <div class="mobile-tabs">
+            <button class=${state.mainView === "navigation" ? "mobile-navigation-tab selected" : "mobile-navigation-tab"} @click=${() => { this.selectMainView("navigation"); }}>Sessions</button>
             <button class=${state.mainView === "chat" ? "selected" : ""} @click=${() => { this.selectMainView("chat"); }}>Chat</button>
             ${this.visibleWorkspacePanels().map((panel) => html`
               <button class=${state.mainView === panel.id ? "selected" : ""} @click=${() => { this.selectMainView(panel.id); }}>${panel.title}</button>
             `)}
           </div>
           ${state.error ? html`<div class="error">${state.error}</div>` : null}
+          <div class="mobile-navigation-panel">${this.renderNavigationPanel(true)}</div>
           ${state.selectedSession ? html`
             <chat-view .sessionId=${state.selectedSession.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .status=${state.status} .activity=${state.activity} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
             <prompt-editor .sessionId=${state.selectedSession.id} .cwd=${state.selectedWorkspace?.path} .disabled=${state.selectedSession.archived === true} .canSteer=${state.status?.isStreaming === true} .isCompacting=${state.status?.isCompacting === true} .canStop=${state.status?.isStreaming === true || state.status?.isBashRunning === true || state.status?.isCompacting === true} .onSend=${(text: string, streamingBehavior?: "steer" | "followUp") => this.sessions.send(text, streamingBehavior)} .onStop=${() => this.sessions.stopActiveWork()}></prompt-editor>
             <status-bar .status=${state.status} .workspace=${state.selectedWorkspace}></status-bar>
             ${state.commandDialog !== undefined ? html`<command-picker .title=${state.commandDialog.title} .options=${state.commandDialog.options} .onPick=${(value: string) => this.sessions.respondToCommand(state.commandDialog?.requestId ?? "", value)} .onCancel=${() => { this.sessions.cancelCommand(); }}></command-picker>` : null}
           ` : html`<div class="empty">Select or start a session.</div>`}
-          <div class="mobile-panel">${this.renderWorkspacePanel()}</div>
+          <div class="mobile-panel">${this.renderWorkspacePanel(true)}</div>
         </main>
         ${this.renderWorkspacePanel()}
         ${state.actionPaletteOpen ? html`<action-palette .actions=${this.getActions()} .onRun=${(actionId: string) => { this.setState({ actionPaletteOpen: false }); this.runAction(actionId); }} .onCancel=${() => { this.setState({ actionPaletteOpen: false }); }}></action-palette>` : null}

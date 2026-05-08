@@ -32,8 +32,8 @@ export const appStyles = css`
   project-list, workspace-list { flex: 0 0 auto; max-height: 26%; overflow: auto; border-bottom: 1px solid #21262d; }
   session-list { flex: 1 1 auto; min-height: 0; overflow: auto; }
   main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-  .mobile-tabs { display: none; flex: 0 0 auto; gap: 6px; padding: 8px; border-bottom: 1px solid #30363d; }
-  .mobile-panel { display: none; }
+  .mobile-tabs { display: none; flex: 0 0 auto; gap: 6px; padding: 8px; border-bottom: 1px solid #30363d; overflow-x: auto; }
+  .mobile-navigation-tab, .mobile-navigation-panel, .mobile-panel { display: none; }
   .mobile-tabs button.selected { border-color: #58a6ff; background: #0d2847; }
   workspace-panel { min-width: 0; min-height: 0; border-left: 1px solid #30363d; overflow: hidden; }
   @media (max-width: 1180px) {
@@ -42,9 +42,17 @@ export const appStyles = css`
     .mobile-tabs { display: flex; }
     main.workspace-view chat-view, main.workspace-view prompt-editor, main.workspace-view status-bar,
     main.workspace-view .empty { display: none; }
-    main.chat-view .mobile-panel { display: none; }
+    main.chat-view .mobile-panel, main.navigation-view .mobile-panel { display: none; }
     .mobile-panel { flex: 1 1 auto; min-height: 0; display: flex; }
     .mobile-panel workspace-panel { flex: 1 1 auto; border-left: 0; }
+  }
+  @media (max-width: 760px) {
+    .shell { grid-template-columns: minmax(0, 1fr); }
+    aside { display: none; }
+    .mobile-navigation-tab { display: block; }
+    main.navigation-view chat-view, main.navigation-view prompt-editor, main.navigation-view status-bar,
+    main.navigation-view .empty { display: none; }
+    main.navigation-view .mobile-navigation-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
   }
   status-bar { flex: 0 0 auto; }
   chat-view { flex: 1 1 auto; min-height: 0; overflow: hidden; }
