@@ -21,26 +21,49 @@ function noop(): void {
   // Intentionally empty default unsubscribe callback.
 }
 
-export class PiSessionService {
-  private readonly active = new Map<string, ActiveSession>();
-  private readonly activities = new Map<string, { phase: "active" | "idle" | "error"; label: string; detail?: string; at: string }>();
-  private readonly heartbeat: NodeJS.Timeout;
-  private readonly commandService: SessionCommandService;
-  private readonly archiveStore = new SessionArchiveStore();
-  private readonly agentDir = getAgentDir();
-  private readonly authStorage = AuthStorage.create();
-  private readonly modelRegistry = ModelRegistry.create(this.authStorage);
-  private readonly createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
-    const services = await createAgentSessionServices({ cwd, agentDir, authStorage: this.authStorage, modelRegistry: this.modelRegistry });
+type SessionArchiveRepository = Pick<SessionArchiveStore, "list" | "archive" | "restore" | "isArchived">;
+type SessionManagerGateway = Pick<typeof SessionManager, "list" | "create" | "listAll" | "open">;
+
+function createDefaultRuntimeFactory(): CreateAgentSessionRuntimeFactory {
+  const authStorage = AuthStorage.create();
+  const modelRegistry = ModelRegistry.create(authStorage);
+  return async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
+    const services = await createAgentSessionServices({ cwd, agentDir, authStorage, modelRegistry });
     const options = sessionStartEvent === undefined
       ? { services, sessionManager }
       : { services, sessionManager, sessionStartEvent };
     const result = await createAgentSessionFromServices(options);
     return { ...result, services, diagnostics: services.diagnostics };
   };
+}
 
-  constructor(private readonly events: SessionEventHub) {
-    this.heartbeat = setInterval(() => { this.publishHeartbeats(); }, 2000);
+export interface PiSessionServiceDependencies {
+  archiveStore?: SessionArchiveRepository;
+  agentDir?: string;
+  sessionManager?: SessionManagerGateway;
+  createRuntime?: CreateAgentSessionRuntimeFactory;
+  modelRegistry?: ReturnType<typeof ModelRegistry.create>;
+  heartbeatIntervalMs?: number;
+}
+
+export class PiSessionService {
+  private readonly active = new Map<string, ActiveSession>();
+  private readonly activities = new Map<string, { phase: "active" | "idle" | "error"; label: string; detail?: string; at: string }>();
+  private readonly heartbeat: NodeJS.Timeout;
+  private readonly commandService: SessionCommandService;
+  private readonly archiveStore: SessionArchiveRepository;
+  private readonly agentDir: string;
+  private readonly sessionManager: SessionManagerGateway;
+  private readonly createRuntime: CreateAgentSessionRuntimeFactory;
+  private readonly modelRegistry: ReturnType<typeof ModelRegistry.create>;
+
+  constructor(private readonly events: SessionEventHub, deps: PiSessionServiceDependencies = {}) {
+    this.archiveStore = deps.archiveStore ?? new SessionArchiveStore();
+    this.agentDir = deps.agentDir ?? getAgentDir();
+    this.sessionManager = deps.sessionManager ?? SessionManager;
+    this.createRuntime = deps.createRuntime ?? createDefaultRuntimeFactory();
+    this.modelRegistry = deps.modelRegistry ?? ModelRegistry.create(AuthStorage.create());
+    this.heartbeat = setInterval(() => { this.publishHeartbeats(); }, deps.heartbeatIntervalMs ?? 2000);
     this.commandService = new SessionCommandService(
       (sessionId) => this.getActive(sessionId),
       (sessionId, text) => this.prompt(sessionId, text),
@@ -65,7 +88,7 @@ export class PiSessionService {
   }
 
   async list(cwd: string): Promise<ClientSession[]> {
-    const [sessions, archivedRecords] = await Promise.all([SessionManager.list(cwd), this.archiveStore.list()]);
+    const [sessions, archivedRecords] = await Promise.all([this.sessionManager.list(cwd), this.archiveStore.list()]);
     const archivedById = new Map(archivedRecords.filter((record) => record.cwd === cwd).map((record) => [record.sessionId, record]));
     return sessions.map((s) => {
       const archived = archivedById.get(s.id);
@@ -84,7 +107,7 @@ export class PiSessionService {
   }
 
   async start(cwd: string): Promise<ClientSession> {
-    const active = await this.create(SessionManager.create(cwd), cwd);
+    const active = await this.create(this.sessionManager.create(cwd), cwd);
     const { session } = active.runtime;
     return {
       id: session.sessionId,
@@ -225,9 +248,9 @@ export class PiSessionService {
     const active = this.active.get(sessionId);
     if (active) return active;
 
-    const match = (await SessionManager.listAll()).find((s) => s.id === sessionId || s.id.startsWith(sessionId));
+    const match = (await this.sessionManager.listAll()).find((s) => s.id === sessionId || s.id.startsWith(sessionId));
     if (!match) throw new Error("Session not found");
-    return this.create(SessionManager.open(match.path), match.cwd);
+    return this.create(this.sessionManager.open(match.path), match.cwd);
   }
 
   private async create(sessionManager: SessionManager, cwd: string): Promise<ActiveSession> {
