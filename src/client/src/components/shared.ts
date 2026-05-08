@@ -28,7 +28,7 @@ export const appStyles = css`
   :host { display: block; height: 100dvh; box-sizing: border-box; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); color: #e6edf3; background: #0d1117; font: 14px system-ui, sans-serif; }
   .shell { display: grid; grid-template-columns: 340px minmax(420px, 1fr) minmax(360px, 42vw); height: 100%; min-height: 0; }
   aside { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid #30363d; overflow: hidden; }
-  header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 12px; border-bottom: 1px solid #30363d; }
+  header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid #30363d; }
   project-list, workspace-list { flex: 0 0 auto; max-height: 26%; overflow: auto; border-bottom: 1px solid #21262d; }
   session-list { flex: 1 1 auto; min-height: 0; overflow: auto; }
   main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -220,14 +220,14 @@ export const commandPickerStyles = css`
 
 export const actionPaletteStyles = css`
   :host { position: fixed; inset: 0; z-index: 20; color: #e6edf3; font: 14px system-ui, sans-serif; }
-  .backdrop { display: grid; align-items: start; justify-items: center; width: 100%; height: 100%; background: #0008; padding-top: min(12vh, 90px); box-sizing: border-box; }
-  section { width: min(720px, calc(100vw - 40px)); max-height: min(640px, calc(100vh - 40px)); display: flex; flex-direction: column; border: 1px solid #30363d; border-radius: 12px; background: #0d1117; box-shadow: 0 20px 60px #000b; overflow: hidden; }
+  .backdrop { --palette-top: min(12dvh, 90px); --palette-bottom: max(20px, env(safe-area-inset-bottom)); display: grid; align-items: start; justify-items: center; width: 100%; height: 100dvh; background: #0008; padding: var(--palette-top) 20px var(--palette-bottom); box-sizing: border-box; overflow: hidden; }
+  section { width: min(720px, 100%); max-height: min(640px, calc(100dvh - var(--palette-top) - var(--palette-bottom))); display: flex; flex-direction: column; border: 1px solid #30363d; border-radius: 12px; background: #0d1117; box-shadow: 0 20px 60px #000b; overflow: hidden; }
   header { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 10px; border-bottom: 1px solid #30363d; }
   input { min-width: 0; border: 0; outline: none; background: transparent; color: #e6edf3; font: 16px system-ui, sans-serif; padding: 8px; }
   input::placeholder { color: #6e7681; }
   button { border: 0; background: transparent; color: #e6edf3; cursor: pointer; }
   header button { color: #8b949e; font-size: 22px; padding: 2px 8px; }
-  .options { min-height: 0; overflow: auto; }
+  .options { flex: 1 1 auto; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; }
   .options button { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; width: 100%; padding: 10px 12px; border-bottom: 1px solid #21262d; text-align: left; }
   .options button.selected, .options button:hover { background: #0d2847; }
   .main { min-width: 0; }

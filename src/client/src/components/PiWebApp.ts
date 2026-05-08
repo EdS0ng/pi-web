@@ -197,7 +197,7 @@ export class PiWebApp extends LitElement {
     return html`
       <header>
         <strong>Pi Web POC</strong>
-        <button @click=${() => { this.setState({ projectDialogOpen: true }); }}>+ Project</button>
+        <button title="Show Actions" aria-label="Show Actions" @click=${() => { this.setState({ actionPaletteOpen: true }); }}>Actions</button>
       </header>
       <project-list .projects=${this.state.projects} .selected=${this.state.selectedProject} .onSelect=${(project: Project) => this.withChatScrollTransition(() => this.workspaces.selectProject(project))} .onClose=${(project: Project) => this.projects.closeProject(project.id)}></project-list>
       <workspace-list .workspaces=${this.state.workspaces} .selected=${this.state.selectedWorkspace} .onSelect=${(workspace: Workspace) => openChatAfter(() => this.workspaces.selectWorkspace(workspace))}></workspace-list>
