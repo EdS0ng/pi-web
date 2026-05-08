@@ -198,6 +198,26 @@ export const commandPickerStyles = css`
   small { display: block; margin-top: 4px; color: #8b949e; }
 `;
 
+export const actionPaletteStyles = css`
+  :host { position: fixed; inset: 0; z-index: 20; color: #e6edf3; font: 14px system-ui, sans-serif; }
+  .backdrop { display: grid; align-items: start; justify-items: center; width: 100%; height: 100%; background: #0008; padding-top: min(12vh, 90px); box-sizing: border-box; }
+  section { width: min(720px, calc(100vw - 40px)); max-height: min(640px, calc(100vh - 40px)); display: flex; flex-direction: column; border: 1px solid #30363d; border-radius: 12px; background: #0d1117; box-shadow: 0 20px 60px #000b; overflow: hidden; }
+  header { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 10px; border-bottom: 1px solid #30363d; }
+  input { min-width: 0; border: 0; outline: none; background: transparent; color: #e6edf3; font: 16px system-ui, sans-serif; padding: 8px; }
+  input::placeholder { color: #6e7681; }
+  button { border: 0; background: transparent; color: #e6edf3; cursor: pointer; }
+  header button { color: #8b949e; font-size: 22px; padding: 2px 8px; }
+  .options { min-height: 0; overflow: auto; }
+  .options button { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; width: 100%; padding: 10px 12px; border-bottom: 1px solid #21262d; text-align: left; }
+  .options button.selected, .options button:hover { background: #0d2847; }
+  .main { min-width: 0; }
+  strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  small { display: block; color: #8b949e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .group { grid-column: 1 / -1; font-size: 12px; }
+  kbd { align-self: center; border: 1px solid #30363d; border-radius: 6px; background: #161b22; color: #8b949e; padding: 2px 6px; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap; }
+  .empty { padding: 24px; color: #8b949e; text-align: center; }
+`;
+
 export const promptEditorStyles = css`
   :host { display: block; color: #e6edf3; font: 14px system-ui, sans-serif; }
   footer { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 12px; border-top: 1px solid #30363d; }

@@ -17,6 +17,7 @@ export interface AppState {
   sessionStatuses: Record<string, SessionStatus>;
   sessionActivities: Record<string, SessionActivity>;
   commandDialog: Extract<CommandResult, { type: "select" }> | undefined;
+  actionPaletteOpen: boolean;
   workspaceTool: "files" | "git";
   mainView: "chat" | "files" | "git";
   fileTree: FileTreeEntry[];
@@ -48,6 +49,7 @@ export function initialAppState(): AppState {
     sessionStatuses: {},
     sessionActivities: {},
     commandDialog: undefined,
+    actionPaletteOpen: false,
     workspaceTool: "files",
     mainView: "chat",
     fileTree: [],

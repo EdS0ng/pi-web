@@ -1,12 +1,15 @@
 import { LitElement, html } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
 import type { Project, SessionInfo, Workspace } from "../api";
+import type { AppAction } from "../actions";
+import { createAppActions } from "../appActions";
 import { initialAppState, type AppState } from "../appState";
 import { FileExplorerController } from "../controllers/fileExplorerController";
 import { GitController } from "../controllers/gitController";
 import { ProjectController } from "../controllers/projectController";
 import { SessionController } from "../controllers/sessionController";
 import { WorkspaceController } from "../controllers/workspaceController";
+import { KeyboardShortcutDispatcher } from "../keyboardShortcuts";
 import { readRoute, writeRoute } from "../route";
 import "./ProjectList";
 import "./WorkspaceList";
@@ -17,6 +20,7 @@ import "./PromptEditor";
 import type { PromptEditor } from "./PromptEditor";
 import "./StatusBar";
 import "./CommandPicker";
+import "./ActionPalette";
 import "./WorkspacePanel";
 import { appStyles } from "./shared";
 
@@ -52,17 +56,27 @@ export class PiWebApp extends LitElement {
     (patch) => { this.setState(patch); },
     () => { this.updateUrl(); },
   );
+  private readonly keyboard = new KeyboardShortcutDispatcher();
   private readonly onPopState = () => void this.withChatScrollTransition(() => this.restoreRoute(false));
+  private readonly onKeyDown = (event: KeyboardEvent) => {
+    if (this.keyboard.handle(event, this.getActions())) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
 
   override connectedCallback(): void {
     super.connectedCallback();
     window.addEventListener("popstate", this.onPopState);
+    window.addEventListener("keydown", this.onKeyDown);
     this.sessions.connectStatusUpdates();
     void this.loadProjectsAndRestoreRoute();
   }
 
   override disconnectedCallback(): void {
     window.removeEventListener("popstate", this.onPopState);
+    window.removeEventListener("keydown", this.onKeyDown);
+    this.keyboard.reset();
     this.sessions.dispose();
     this.git.dispose();
     super.disconnectedCallback();
@@ -162,6 +176,25 @@ export class PiWebApp extends LitElement {
     return html`<workspace-panel .workspace=${this.state.selectedWorkspace} .tool=${this.state.workspaceTool} .fileTree=${this.state.fileTree} .expandedDirs=${this.state.expandedDirs} .selectedFilePath=${this.state.selectedFilePath} .selectedFileContent=${this.state.selectedFileContent} .fileTreeStale=${this.state.fileTreeStale} .gitStatus=${this.state.gitStatus} .selectedDiffPath=${this.state.selectedDiffPath} .selectedDiff=${this.state.selectedDiff} .gitStale=${this.state.gitStale} .onSelectTool=${(tool: "files" | "git") => { this.selectWorkspaceTool(tool); }} .onRefreshFiles=${() => this.files.refreshFiles()} .onExpandDir=${(path: string) => this.files.expandDir(path)} .onSelectFile=${(path: string) => this.files.selectFile(path)} .onRefreshGit=${() => this.git.refreshGit()} .onSelectDiff=${(path: string) => this.git.selectDiff(path)}></workspace-panel>`;
   }
 
+  private getActions(): AppAction[] {
+    return createAppActions({
+      state: this.state,
+      openActionPalette: () => { this.setState({ actionPaletteOpen: true }); },
+      focusPrompt: () => { this.promptEditor?.focusInput(); },
+      addProject: () => this.projects.addProject(),
+      selectMainView: (view) => { this.selectMainView(view); },
+      refreshFiles: () => this.files.refreshFiles(),
+      refreshGit: () => this.git.refreshGit(),
+      startSession: () => this.withChatScrollTransition(() => this.sessions.startSession()),
+      stopActiveWork: () => this.sessions.stopActiveWork(),
+    });
+  }
+
+  private runAction(actionId: string) {
+    const action = this.getActions().find((candidate) => candidate.id === actionId && candidate.enabled !== false);
+    if (action !== undefined) void action.run();
+  }
+
   override render() {
     const state = this.state;
     return html`
@@ -191,6 +224,7 @@ export class PiWebApp extends LitElement {
           <div class="mobile-panel">${this.renderWorkspacePanel()}</div>
         </main>
         ${this.renderWorkspacePanel()}
+        ${state.actionPaletteOpen ? html`<action-palette .actions=${this.getActions()} .onRun=${(actionId: string) => { this.setState({ actionPaletteOpen: false }); this.runAction(actionId); }} .onCancel=${() => { this.setState({ actionPaletteOpen: false }); }}></action-palette>` : null}
       </div>
     `;
   }
