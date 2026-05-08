@@ -141,6 +141,7 @@ export type CommandResult =
   | { type: "unsupported"; message: string };
 
 export type SessionUiEvent =
+  | { type: "message.append"; message: unknown }
   | { type: "assistant.delta"; text: string }
   | { type: "tool.start"; toolName: string; toolCallId: string; summary: string; args?: unknown }
   | { type: "tool.end"; toolName: string; toolCallId: string; text: string; isError: boolean; content?: unknown }

@@ -160,6 +160,7 @@ export class PiSessionService {
     this.maybeGenerateSessionName(session, text);
     const behavior = session.isStreaming || session.isCompacting ? streamingBehavior ?? "followUp" : undefined;
     this.publishActivity(session, session.isCompacting ? "message queued during compaction" : behavior === "steer" ? "steering queued" : behavior === "followUp" ? "message queued" : "prompt accepted", "active");
+    this.events.publish(sessionId, { type: "message.append", message: userTextMessage(text) });
     void session.prompt(text, behavior === undefined ? undefined : { streamingBehavior: behavior }).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       this.publishActivity(session, "error", "error", message);
@@ -401,6 +402,10 @@ export class PiSessionService {
       ...(contextUsage === undefined ? {} : { contextUsage }),
     };
   }
+}
+
+function userTextMessage(text: string): { role: "user"; content: string } {
+  return { role: "user", content: text };
 }
 
 function historyMessages(session: AgentSession): unknown[] {

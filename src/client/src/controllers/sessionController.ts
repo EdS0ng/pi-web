@@ -110,7 +110,6 @@ export class SessionController {
     if (isShellInput(text)) return this.runShell(text);
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return;
-    this.setState({ messages: [...this.getState().messages, textMessage("user", text)] });
     try {
       await api.prompt(session.id, text, streamingBehavior);
     } catch (error) {
