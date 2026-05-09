@@ -129,7 +129,7 @@ export const chatStyles = css`
   .activity-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; opacity: .45; flex: 0 0 auto; }
   .activity-dock.active .dot { animation: pulse 1s ease-in-out infinite; opacity: 1; }
-  .msg { margin: 0 0 14px; padding: 12px; border: 1px solid #30363d; border-radius: 10px; background: #161b22; }
+  .msg { max-width: 100%; min-width: 0; box-sizing: border-box; margin: 0 0 14px; padding: 12px; border: 1px solid #30363d; border-radius: 10px; background: #161b22; overflow: hidden; }
   .msg.user { border-color: #2f81f7; background: #0d2847; }
   .msg.tool { border-color: #6e5200; background: #1f1a10; color: #d29922; }
   .msg.system { color: #ff7b72; }
@@ -138,12 +138,12 @@ export const chatStyles = css`
   .msg.event-group > summary { display: flex; align-items: center; gap: 8px; padding: 8px 12px; color: #8b949e; }
   .msg.event-group > summary .label { margin: 0; }
   .group-body { padding: 0 12px 12px; }
-  .group-msg { padding: 10px 0; border-top: 1px solid #21262d; color: #e6edf3; }
+  .group-msg { max-width: 100%; min-width: 0; box-sizing: border-box; padding: 10px 0; border-top: 1px solid #21262d; color: #e6edf3; overflow: hidden; }
   .group-msg.tool { color: #d29922; }
   .group-msg.system { color: #ff7b72; }
   .group-msg.bash { color: #3fb950; }
   .history-boundary { display: grid; gap: 3px; margin: 0 0 14px; color: #8b949e; font-size: 12px; text-align: center; }
-  .session-activity { display: grid; gap: 4px; margin: 0 0 14px; padding: 12px; border: 1px solid #30363d; border-radius: 10px; background: #161b22; color: #e6edf3; }
+  .session-activity { max-width: 100%; min-width: 0; box-sizing: border-box; display: grid; gap: 4px; margin: 0 0 14px; padding: 12px; border: 1px solid #30363d; border-radius: 10px; background: #161b22; color: #e6edf3; overflow: auto; -webkit-overflow-scrolling: touch; }
   .session-activity.compacting { border-color: #a371f7; background: #21132f; }
   .session-activity.receiving { border-color: #238636; background: #0f1b12; }
   .session-activity strong { color: #d2a8ff; }
@@ -163,10 +163,12 @@ export const chatStyles = css`
     .msg-meta:focus::before, .msg-meta.expanded::before { content: ""; }
   }
   formatted-text.part { display: block; }
+  .part { max-width: 100%; min-width: 0; box-sizing: border-box; overflow: auto; -webkit-overflow-scrolling: touch; }
   .part + .part { margin-top: 10px; }
   .tool-line { color: #d29922; }
   .summary { color: #8b949e; margin-left: 6px; }
   .part:is(details) { border-top: 1px solid #30363d; padding-top: 8px; }
+  .part > formatted-text { display: block; max-width: 100%; min-width: 0; overflow: auto; -webkit-overflow-scrolling: touch; }
   .skill-invocation { border: 1px solid #30363d; border-radius: 8px; background: #161b22; padding: 8px 10px; }
   .skill-invocation > summary { color: #d2a8ff; }
   .skill-invocation > small { display: block; margin: 6px 0 8px; color: #8b949e; }
