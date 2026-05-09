@@ -24,6 +24,16 @@ export function defaultPiWebConfigPath(env: NodeJS.ProcessEnv = process.env): st
   return join(xdgConfigHome !== undefined && xdgConfigHome !== "" ? xdgConfigHome : join(homedir(), ".config"), "pi-web", "config.json");
 }
 
+export function defaultPiWebDataDir(): string {
+  return join(homedir(), ".pi-web");
+}
+
+export function piWebDataDir(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {
+  const configured = env["PI_WEB_DATA_DIR"];
+  if (configured === undefined || configured === "") return defaultPiWebDataDir();
+  return resolve(cwd, configured);
+}
+
 export function piWebConfigPath(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {
   const configured = env["PI_WEB_CONFIG"];
   if (configured === undefined || configured === "") return defaultPiWebConfigPath(env);

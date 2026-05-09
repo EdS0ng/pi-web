@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { piWebDataDir } from "../../config.js";
 import { randomUUID } from "node:crypto";
 import type { Project } from "../types.js";
 
@@ -31,8 +31,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+export function defaultProjectStorePath(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {
+  return join(piWebDataDir(env, cwd), "projects.json");
+}
+
+export function projectStorePath(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {
+  const configured = env["PI_WEB_PROJECTS_FILE"];
+  if (configured === undefined || configured === "") return defaultProjectStorePath(env, cwd);
+  return resolve(cwd, configured);
+}
+
 export class ProjectStore {
-  constructor(private readonly filePath = join(homedir(), ".pi-web", "projects.json")) {}
+  constructor(private readonly filePath = projectStorePath()) {}
 
   async list(): Promise<Project[]> {
     return (await this.read()).projects;
