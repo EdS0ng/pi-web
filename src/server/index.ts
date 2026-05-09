@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { effectivePiWebConfig } from "../config.js";
 import { buildApp } from "./app.js";
 
