@@ -37,23 +37,26 @@ export const appStyles = css`
   session-list { flex: 1 1 auto; min-height: 0; overflow: auto; }
   main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
   .mobile-tabs { display: none; flex: 0 0 auto; gap: 6px; padding: 8px; border-bottom: 1px solid #30363d; overflow-x: auto; }
-  .mobile-navigation-tab, .mobile-navigation-panel, .mobile-panel { display: none; }
+  .mobile-navigation-tab, .mobile-navigation-panel { display: none; }
   .mobile-tabs button.selected { border-color: #58a6ff; background: #0d2847; }
   .tab-badge { display: inline-block; min-width: 14px; margin-left: 4px; border: 1px solid #238636; border-radius: 999px; background: #0f2a16; color: #3fb950; padding: 0 5px; font-size: 11px; line-height: 16px; text-align: center; }
   workspace-panel { min-width: 0; min-height: 0; border-left: 1px solid #30363d; overflow: hidden; }
   @media (max-width: 1180px) {
-    .shell { grid-template-columns: 340px minmax(0, 1fr); }
-    .shell > workspace-panel { display: none; }
+    .shell { grid-template-columns: 340px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+    aside { grid-row: 1 / 3; }
+    main { grid-column: 2; grid-row: 1 / 3; }
     .mobile-tabs { display: flex; }
+    .shell.workspace-view main { grid-row: 1; min-height: auto; }
+    .shell.workspace-view > workspace-panel { grid-column: 2; grid-row: 2; display: flex; border-left: 0; }
+    .shell:not(.workspace-view) > workspace-panel { display: none; }
     main.workspace-view chat-view, main.workspace-view prompt-editor, main.workspace-view status-bar,
     main.workspace-view .empty { display: none; }
-    main.chat-view .mobile-panel, main.navigation-view .mobile-panel { display: none; }
-    .mobile-panel { flex: 1 1 auto; min-height: 0; display: flex; }
-    .mobile-panel workspace-panel { flex: 1 1 auto; border-left: 0; }
+    main.workspace-view { overflow: hidden; }
   }
   @media (max-width: 760px) {
     .shell { grid-template-columns: minmax(0, 1fr); }
     aside { display: none; }
+    main, .shell.workspace-view > workspace-panel { grid-column: 1; }
     .mobile-navigation-tab { display: block; }
     main.navigation-view chat-view, main.navigation-view prompt-editor, main.navigation-view status-bar,
     main.navigation-view .empty { display: none; }
@@ -77,6 +80,7 @@ export const workspacePanelStyles = css`
   .panel-content { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
   small, .muted { color: #8b949e; }
   header small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 1180px) { .tabs { display: none; } }
   .workspace-label { min-width: 0; display: inline-flex; align-items: baseline; gap: 5px; max-width: 100%; overflow: hidden; white-space: nowrap; }
   .workspace-label-base, .workspace-label-item, .workspace-label-render { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .workspace-label-item, .workspace-label-render, .workspace-label-separator { color: #8b949e; }
