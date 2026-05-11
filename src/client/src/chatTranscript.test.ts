@@ -42,6 +42,25 @@ describe("applyTranscriptEvent", () => {
     ]);
   });
 
+  it("replaces streamed skill reads when the finalized assistant tool call arrives after the tool result", () => {
+    const streamed: ChatLine[] = [
+      { role: "skill", parts: [{ type: "skillRead", name: "playwright", path: "/skills/playwright/SKILL.md" }] },
+      { role: "tool", parts: [{ type: "toolResult", toolName: "read", text: "skill content", isError: false }] },
+    ];
+
+    expect(applyTranscriptEvent(streamed, {
+      type: "message.end",
+      message: {
+        role: "assistant",
+        content: [{ type: "toolCall", name: "read", arguments: { path: "/skills/playwright/SKILL.md" } }],
+        timestamp: "2026-05-09T12:00:00.000Z",
+      },
+    })).toEqual([
+      { role: "skill", parts: [{ type: "skillRead", name: "playwright", path: "/skills/playwright/SKILL.md" }], meta: { timestamp: "2026-05-09T12:00:00.000Z" } },
+      { role: "tool", parts: [{ type: "toolResult", toolName: "read", text: "skill content", isError: false }] },
+    ]);
+  });
+
   it("does not merge different finalized user messages", () => {
     const messages = [textMessage("user", "first queued prompt")];
 

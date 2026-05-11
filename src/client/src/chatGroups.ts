@@ -28,7 +28,8 @@ export function groupChatMessages(messages: ChatLine[], indexOffset = 0): ChatGr
     if (technicalParts.length) pushEvent({ role: message.role, parts: technicalParts, ...metadata }, absoluteIndex);
     if (readableParts.length) {
       flushEvents();
-      groups.push({ kind: "message", message: { role: message.role, parts: readableParts, ...metadata }, index: absoluteIndex });
+      const role = readableParts.every((part) => part.type === "skillRead") ? "skill" : message.role;
+      groups.push({ kind: "message", message: { role, parts: readableParts, ...metadata }, index: absoluteIndex });
     }
   });
   flushEvents();
@@ -48,6 +49,6 @@ export function summarizeChatGroup(messages: ChatLine[]): string {
 
 function isReadablePart(message: ChatLine, part: ChatPart): boolean {
   if (message.source === "compaction" || message.source === "branch_summary") return false;
-  if (part.type === "skillInvocation") return true;
+  if (part.type === "skillInvocation" || part.type === "skillRead") return true;
   return part.type === "text" && (message.role === "user" || message.role === "assistant" || message.role === "system" || message.role === "bash");
 }

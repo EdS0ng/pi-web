@@ -29,6 +29,12 @@ describe("chat message normalization", () => {
     ]);
   });
 
+  it("normalizes skill reads into skill chat lines", () => {
+    expect(normalizeMessage({ role: "assistant", content: [{ type: "toolCall", name: "read", arguments: { path: "/home/user/.agents/skills/playwright/SKILL.md" } }] })).toEqual([
+      { role: "skill", parts: [{ type: "skillRead", name: "playwright", path: "/home/user/.agents/skills/playwright/SKILL.md" }] },
+    ]);
+  });
+
   it("formats bash execution records as bash chat lines", () => {
     expect(normalizeMessage({
       role: "bashExecution",

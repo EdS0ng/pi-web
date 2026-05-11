@@ -21,10 +21,29 @@ export function applyTranscriptEvent(messages: ChatLine[], event: SessionUiEvent
 function applyFinalMessage(messages: ChatLine[], rawMessage: unknown): ChatLine[] | undefined {
   const ended = normalizeMessage(rawMessage)[0];
   if (ended === undefined) return undefined;
+  const skillReadIndex = ended.role === "skill" ? findMatchingSkillRead(messages, ended) : -1;
+  if (skillReadIndex >= 0) return [...messages.slice(0, skillReadIndex), ended, ...messages.slice(skillReadIndex + 1)];
   const last = messages.at(-1);
   if (last?.role !== ended.role) return [...messages, ended];
   if (ended.role === "assistant" || sameMessageText(last, ended)) return [...messages.slice(0, -1), ended];
   return [...messages, ended];
+}
+
+function findMatchingSkillRead(messages: ChatLine[], ended: ChatLine): number {
+  const endedReads = skillReadPaths(ended);
+  if (endedReads.length === 0) return -1;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const paths = skillReadPaths(messages[index]);
+    if (paths.length === endedReads.length && paths.every((path, pathIndex) => path === endedReads[pathIndex])) return index;
+  }
+  return -1;
+}
+
+function skillReadPaths(message: ChatLine | undefined): string[] {
+  if (message === undefined || message.role !== "skill") return [];
+  return message.parts
+    .filter((part): part is Extract<ChatLine["parts"][number], { type: "skillRead" }> => part.type === "skillRead")
+    .map((part) => part.path);
 }
 
 function sameMessageText(left: ChatLine, right: ChatLine): boolean {

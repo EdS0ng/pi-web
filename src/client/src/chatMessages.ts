@@ -51,7 +51,8 @@ export function normalizeMessage(message: unknown): ChatLine[] {
   if (role === "tool") return [withMessageMeta({ role, parts, ...(source === undefined ? {} : { source }) }, message)];
 
   const visible = parts.filter((part) => part.type !== "empty");
-  return visible.length > 0 ? [withMessageMeta({ role, parts: visible, ...(source === undefined ? {} : { source }) }, message)] : [];
+  const displayRole = role === "assistant" && visible.length > 0 && visible.every((part) => part.type === "skillRead") ? "skill" : role;
+  return visible.length > 0 ? [withMessageMeta({ role: displayRole, parts: visible, ...(source === undefined ? {} : { source }) }, message)] : [];
 }
 
 function normalizeSkillInvocation(parts: ChatPart[]): ChatLine[] | undefined {
@@ -142,12 +143,27 @@ function normalizeContent(content: unknown, message: unknown): ChatPart[] {
       const thinking = getString(part, "thinking") ?? text;
       return thinking !== undefined && thinking !== "" ? [{ type: "thinking", text: thinking }] : [];
     }
-    if (type === "toolCall") return [{ type: "toolCall", toolName: getString(part, "name") ?? "tool", summary: summarizeArgs(getProperty(part, "arguments")) }];
+    if (type === "toolCall") {
+      const toolName = getString(part, "name") ?? "tool";
+      const args = getProperty(part, "arguments");
+      const skillRead = toolName === "read" ? parseSkillReadPath(getString(args, "path")) : undefined;
+      if (skillRead !== undefined) return [{ type: "skillRead", ...skillRead }];
+      return [{ type: "toolCall", toolName, summary: summarizeArgs(args) }];
+    }
     if (type === "image") return [{ type: "text", text: "[image]" }];
     return objectFallback(part);
   }).map((part) => part.type === "text" && getString(message, "role") === "toolResult"
     ? { type: "toolResult", toolName: getString(message, "toolName") ?? "tool", text: part.text, isError: getBoolean(message, "isError") === true }
     : part);
+}
+
+function parseSkillReadPath(path: string | undefined): { name: string; path: string } | undefined {
+  if (path === undefined || path === "") return undefined;
+  const normalized = path.replace(/\\/g, "/");
+  if (!normalized.endsWith("/SKILL.md") && normalized !== "SKILL.md") return undefined;
+  const name = normalized.split("/").at(-2);
+  if (name === undefined || name === "") return undefined;
+  return { name, path };
 }
 
 function objectFallback(value: unknown): ChatPart[] {

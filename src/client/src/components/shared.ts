@@ -4,12 +4,13 @@ export type ChatPart =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
   | { type: "skillInvocation"; name: string; location: string; content: string }
+  | { type: "skillRead"; name: string; path: string }
   | { type: "toolCall"; toolName: string; summary: string }
   | { type: "toolResult"; toolName: string; text: string; isError: boolean }
   | { type: "empty" };
 
 export interface ChatLine {
-  role: "user" | "assistant" | "tool" | "system" | "bash";
+  role: "user" | "assistant" | "tool" | "system" | "bash" | "skill";
   parts: ChatPart[];
   source?: "compaction" | "branch_summary";
   meta?: {
@@ -156,6 +157,7 @@ export const chatStyles = css`
   .msg.tool { border-color: #6e5200; background: #1f1a10; color: #d29922; }
   .msg.system { color: #ff7b72; }
   .msg.bash { border-color: #3fb950; background: #0f1b12; }
+  .msg.skill { border-color: #a371f7; background: #21132f; }
   .msg.event-group { padding: 0; border-color: #30363d; background: #0d1117; color: #8b949e; }
   .msg.event-group > summary { display: flex; align-items: center; gap: 8px; padding: 8px 12px; color: #8b949e; }
   .msg.event-group > summary .label { margin: 0; }
@@ -206,9 +208,9 @@ export const chatStyles = css`
   .summary { color: #8b949e; margin-left: 6px; }
   .part:is(details) { border-top: 1px solid #30363d; padding-top: 8px; }
   .part > formatted-text { display: block; max-width: 100%; min-width: 0; overflow: visible; }
-  .skill-invocation { border: 1px solid #30363d; border-radius: 8px; background: #161b22; padding: 8px 10px; }
-  .skill-invocation > summary { color: #d2a8ff; }
-  .skill-invocation > small { display: block; margin: 6px 0 8px; color: #8b949e; }
+  .skill-invocation, .skill-read { border: 1px solid #30363d; border-radius: 8px; background: #161b22; padding: 8px 10px; }
+  .skill-invocation > summary, .skill-read > strong { color: #d2a8ff; }
+  .skill-invocation > small, .skill-read > small { display: block; margin: 6px 0 0; color: #8b949e; }
   summary { cursor: pointer; color: #8b949e; }
   pre { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
   .shell-output { color: #e6edf3; font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.45; }

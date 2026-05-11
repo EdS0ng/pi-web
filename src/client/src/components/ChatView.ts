@@ -332,6 +332,12 @@ export class ChatView extends LitElement {
         <formatted-text .text=${part.content}></formatted-text>
       </details>
     `;
+    if (part.type === "skillRead") return html`
+      <div class="part skill-read">
+        <strong>Loaded ${part.name}</strong>
+        <small>read ${part.path}</small>
+      </div>
+    `;
     if (part.type === "toolCall") return html`<div class="part tool-line">▶ ${part.toolName}<span class="summary">${part.summary}</span></div>`;
     if (part.type === "toolResult") return html`
       <details class="part" ?open=${part.isError}>

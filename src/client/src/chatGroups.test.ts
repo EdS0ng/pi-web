@@ -30,6 +30,17 @@ describe("groupChatMessages", () => {
     ]);
   });
 
+  it("keeps skill reads out of event groups", () => {
+    const messages: ChatLine[] = [
+      { role: "assistant", parts: [{ type: "thinking", text: "plan" }, { type: "skillRead", name: "playwright", path: "/skills/playwright/SKILL.md" }] },
+    ];
+
+    expect(groupChatMessages(messages)).toEqual([
+      { kind: "group", startIndex: 0, messages: [{ role: "assistant", parts: [{ type: "thinking", text: "plan" }] }] },
+      { kind: "message", index: 0, message: { role: "skill", parts: [{ type: "skillRead", name: "playwright", path: "/skills/playwright/SKILL.md" }] } },
+    ]);
+  });
+
   it("preserves message metadata when grouping", () => {
     const message: ChatLine = { role: "assistant", parts: [{ type: "thinking", text: "hidden" }, { type: "text", text: "shown" }], meta: { timestamp: "2026-05-09T12:00:00.000Z", model: { provider: "test", id: "model" } } };
 
