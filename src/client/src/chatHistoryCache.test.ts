@@ -19,10 +19,17 @@ describe("mergeChatHistory", () => {
     expect(mergeChatHistory(existing, incoming)).toEqual(page(0, 4, ["a", "b", "c", "d"]));
   });
 
-  it("uses incoming history when totals shrink", () => {
+  it("uses incoming history when a complete cached history shrinks", () => {
     const incoming = page(0, 2, ["fresh-a", "fresh-b"]);
 
     expect(mergeChatHistory(page(0, 3, ["stale-a", "stale-b", "stale-c"]), incoming)).toEqual(incoming);
+  });
+
+  it("keeps adjacent cached history when an older page reports a lower total", () => {
+    const existing = page(100, 200, ["newer-a", "newer-b"]);
+    const incoming = page(98, 150, ["older-a", "older-b"]);
+
+    expect(mergeChatHistory(existing, incoming)).toEqual(page(98, 200, ["older-a", "older-b", "newer-a", "newer-b"]));
   });
 
   it("uses incoming history instead of creating a gapped page", () => {

@@ -37,7 +37,7 @@ export function writeChatHistoryCache(sessionId: string, page: RawMessagePage): 
 
 export function mergeChatHistory(existing: RawMessagePage | undefined, incoming: RawMessagePage): RawMessagePage {
   if (existing === undefined) return incoming;
-  if (existing.total > incoming.total) return incoming;
+  if (isCompleteReplacement(existing, incoming)) return incoming;
 
   const start = Math.min(existing.start, incoming.start);
   const end = Math.max(existing.start + existing.messages.length, incoming.start + incoming.messages.length);
@@ -46,7 +46,11 @@ export function mergeChatHistory(existing: RawMessagePage | undefined, incoming:
   copyInto(messages, start, incoming);
 
   if (hasSparseEntries(messages)) return incoming;
-  return { start, total: incoming.total, messages };
+  return { start, total: Math.max(existing.total, incoming.total), messages };
+}
+
+function isCompleteReplacement(existing: RawMessagePage, incoming: RawMessagePage): boolean {
+  return existing.total > incoming.total && existing.start === 0 && incoming.start === 0 && incoming.messages.length === incoming.total;
 }
 
 function hasSparseEntries(messages: unknown[]): boolean {

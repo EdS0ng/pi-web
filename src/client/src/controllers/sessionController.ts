@@ -13,6 +13,8 @@ export class SessionController {
   private readonly socket = new SessionSocket();
   private selectionSeq = 0;
   private catchupStreamSessionId: string | undefined;
+  private pendingTranscriptEvents: SessionUiEvent[] = [];
+  private pendingTranscriptFrame: number | undefined;
 
   constructor(private readonly getState: GetState, private readonly setState: SetState, private readonly updateUrl: UpdateUrl) {}
 
@@ -24,11 +26,13 @@ export class SessionController {
 
   dispose() {
     this.socket.close();
+    this.clearPendingTranscriptEvents();
   }
 
   clearActiveSession() {
     this.socket.close();
     this.catchupStreamSessionId = undefined;
+    this.clearPendingTranscriptEvents();
     this.setState({ selectedSession: undefined, messages: [], messagePageStart: 0, messagePageTotal: 0, isLoadingEarlierMessages: false, isReceivingPartialStream: false, status: undefined, activity: undefined });
   }
 
@@ -48,6 +52,7 @@ export class SessionController {
     const seq = ++this.selectionSeq;
     this.socket.close();
     this.catchupStreamSessionId = undefined;
+    this.clearPendingTranscriptEvents();
     const cached = readChatHistoryCache(session.id);
     this.setState({
       selectedSession: session,
@@ -342,6 +347,12 @@ export class SessionController {
       if (isTranscriptEvent(event)) return;
     }
 
+    if (isHighFrequencyTranscriptEvent(event)) {
+      this.queueTranscriptEvent(event);
+      return;
+    }
+
+    this.flushPendingTranscriptEvents();
     const transcript = applyTranscriptEvent(this.getState().messages, event);
     if (transcript) {
       this.setState({ messages: transcript });
@@ -352,6 +363,31 @@ export class SessionController {
     } else if (event.type === "session.name") {
       this.applySessionName(event.sessionId, event.name);
     }
+  }
+
+  private queueTranscriptEvent(event: SessionUiEvent): void {
+    this.pendingTranscriptEvents.push(event);
+    if (this.pendingTranscriptFrame !== undefined) return;
+    this.pendingTranscriptFrame = requestAnimationFrame(() => {
+      this.pendingTranscriptFrame = undefined;
+      this.flushPendingTranscriptEvents();
+    });
+  }
+
+  private flushPendingTranscriptEvents(): void {
+    if (this.pendingTranscriptEvents.length === 0) return;
+    const events = this.pendingTranscriptEvents;
+    this.pendingTranscriptEvents = [];
+    let messages = this.getState().messages;
+    for (const event of events) messages = applyTranscriptEvent(messages, event) ?? messages;
+    if (messages !== this.getState().messages) this.setState({ messages });
+  }
+
+  private clearPendingTranscriptEvents(): void {
+    this.pendingTranscriptEvents = [];
+    if (this.pendingTranscriptFrame === undefined) return;
+    cancelAnimationFrame(this.pendingTranscriptFrame);
+    this.pendingTranscriptFrame = undefined;
   }
 
   private finishStreamCatchup(sessionId: string) {
@@ -375,5 +411,9 @@ export class SessionController {
 
 function isTranscriptEvent(event: SessionUiEvent): boolean {
   return ["message.append", "assistant.delta", "assistant.thinking.delta", "tool.start", "tool.end", "shell.start", "shell.chunk", "shell.end", "command.output", "session.error"].includes(event.type);
+}
+
+function isHighFrequencyTranscriptEvent(event: SessionUiEvent): boolean {
+  return event.type === "assistant.delta" || event.type === "assistant.thinking.delta" || event.type === "shell.chunk";
 }
 

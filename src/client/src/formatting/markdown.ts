@@ -3,9 +3,20 @@ import { marked } from "marked";
 const renderer = new marked.Renderer();
 renderer.html = ({ text }) => escapeHtml(text);
 
+const MAX_MARKDOWN_CACHE_ENTRIES = 300;
+const markdownHtmlCache = new Map<string, string>();
+
 export function toSafeMarkdownHtml(text: string): string {
+  const cached = markdownHtmlCache.get(text);
+  if (cached !== undefined) return cached;
   const html = marked.parse(text, { async: false, breaks: true, gfm: true, renderer });
-  return sanitizeHtml(html);
+  const safeHtml = sanitizeHtml(html);
+  markdownHtmlCache.set(text, safeHtml);
+  if (markdownHtmlCache.size > MAX_MARKDOWN_CACHE_ENTRIES) {
+    const oldest = markdownHtmlCache.keys().next().value;
+    if (oldest !== undefined) markdownHtmlCache.delete(oldest);
+  }
+  return safeHtml;
 }
 
 function escapeHtml(text: string): string {

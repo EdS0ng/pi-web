@@ -1,5 +1,6 @@
 import { LitElement, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
+import { repeat } from "lit/directives/repeat.js";
 import { groupChatMessages, summarizeChatGroup } from "../chatGroups";
 import { shouldRequestEarlierMessages } from "../chatHistoryLoading";
 import type { SessionActivity, SessionStatus } from "../api";
@@ -37,7 +38,6 @@ export class ChatView extends LitElement {
   @query(".chat") private chat?: HTMLDivElement;
   @state() private pinnedToBottom = true;
   @state() private openGroupKeys = new Set<string>();
-  @state() private loadedScrollPercent = 100;
   @state() private expandedMetaKey: string | undefined;
   @state() private copiedMessageKey: string | undefined;
   private suppressScrollSave = false;
@@ -77,7 +77,6 @@ export class ChatView extends LitElement {
     if (changed.has("loadingMore") && !this.loadingMore) this.loadMoreRequested = false;
     if (changed.has("hasMore") && !this.hasMore) this.loadMoreRequested = false;
     if (!changed.has("sessionId") && changed.has("messages") && this.pinnedToBottom) this.scrollToBottom();
-    this.updateLoadedScrollPercent();
     if (changed.has("messages") || changed.has("hasMore") || changed.has("loadingMore")) this.requestLoadMoreIfNeeded();
   }
 
@@ -87,9 +86,13 @@ export class ChatView extends LitElement {
         ${this.renderHistoryIndicator()}
         <div class="chat" @scroll=${() => { this.onScroll(); }} @wheel=${(event: WheelEvent) => { this.onWheel(event); }} @touchstart=${(event: TouchEvent) => { this.onTouchStart(event); }} @touchmove=${(event: TouchEvent) => { this.onTouchMove(event); }}>
           ${this.renderHistoryBoundary()}
-          ${groupChatMessages(this.messages, this.messageStart).map((group) => group.kind === "message"
-            ? this.renderMessage(group.message, group.index)
-            : this.renderMessageGroup(group.messages, group.startIndex))}
+          ${repeat(
+            groupChatMessages(this.messages, this.messageStart),
+            (group) => group.kind === "message" ? this.messageAnchorKey(group.index) : this.groupAnchorKey(group.startIndex),
+            (group) => group.kind === "message"
+              ? this.renderMessage(group.message, group.index)
+              : this.renderMessageGroup(group.messages, group.startIndex),
+          )}
           ${this.renderQueuedMessages()}
           ${this.renderSessionActivity()}
         </div>
@@ -174,7 +177,6 @@ export class ChatView extends LitElement {
     return html`
       <div class="history-indicator">
         <div>${fullHistory}</div>
-        <div>loaded scroll: ${String(this.loadedScrollPercent)}% from top</div>
       </div>
     `;
   }
@@ -351,7 +353,6 @@ export class ChatView extends LitElement {
   }
 
   private onScroll() {
-    this.updateLoadedScrollPercent();
     this.requestLoadMoreIfNeeded();
     this.updatePinnedToBottomFromScroll();
     if (!this.suppressScrollSave) this.scheduleScrollPositionSave();
@@ -391,14 +392,6 @@ export class ChatView extends LitElement {
   private didChatHeightChange(): boolean {
     const chat = this.chat;
     return chat !== undefined && this.lastClientHeight !== 0 && chat.clientHeight !== this.lastClientHeight;
-  }
-
-  private updateLoadedScrollPercent(): void {
-    const chat = this.chat;
-    if (!chat) return;
-    const maxScroll = chat.scrollHeight - chat.clientHeight;
-    const percent = maxScroll <= 0 ? 100 : Math.round((chat.scrollTop / maxScroll) * 100);
-    this.loadedScrollPercent = Math.max(0, Math.min(100, percent));
   }
 
   private requestLoadMoreIfNeeded(): void {
@@ -500,7 +493,6 @@ export class ChatView extends LitElement {
       chat.scrollTop = anchor.scrollTop + (chat.scrollHeight - anchor.scrollHeight);
       this.lastScrollTop = chat.scrollTop;
     });
-    this.updateLoadedScrollPercent();
     this.requestLoadMoreIfNeeded();
   }
 
