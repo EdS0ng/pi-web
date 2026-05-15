@@ -91,7 +91,11 @@
                 <li><strong>zsh:</strong> put PATH setup in <code>~/.zprofile</code>, not only <code>~/.zshrc</code>.</li>
                 <li><strong>fish:</strong> prefer universal PATH setup, for example <code>fish_add_path -U ...</code>.</li>
               </ul>
-              <p>Avoid relying only on prompt hooks or interactive-only shell files for tools needed by services.</p>
+              <p>
+                Avoid relying only on prompt hooks, shell integrations that rewrite PATH while rendering a prompt, or
+                interactive-only shell files for tools needed by services. Version-manager shims are usually the most
+                reliable option for service environments.
+              </p>
             </article>
 
             <article id="doctor-fails" class="faq-item">
@@ -109,11 +113,13 @@
             <article id="nvm-fnm-asdf" class="faq-item">
               <h2>I installed Node with nvm, fnm, asdf, or another version manager</h2>
               <p>
-                Version managers often initialize in interactive shells only. Pi Web needs Node and npm to be available to
-                login shells and systemd user services.
+                Version managers often initialize in interactive shells only. Some tools, including <code>fnm</code> and
+                <code>mise</code> when used through shell activation instead of shims, depend on shell hooks or prompt-time
+                PATH updates that are unreliable in non-interactive login shells.
               </p>
               <ul>
-                <li>Move the version manager initialization to your login shell file.</li>
+                <li>Prefer version-manager shims when available; for <code>mise</code>, use shims or enable its shim setup rather than relying only on shell activation.</li>
+                <li>Move any required version-manager initialization to your login shell file.</li>
                 <li>Make sure <code>node --version</code> is at least <code>v22</code> from <code>bash -lc</code>, <code>zsh -lc</code>, or your detected shell.</li>
                 <li>Run <code>pi-web doctor</code> again after changing shell files.</li>
               </ul>
@@ -149,8 +155,16 @@
             <article id="public-internet" class="faq-item">
               <h2>Can I expose Pi Web to the public internet?</h2>
               <p>
-                Do not expose it directly. Pi Web assumes trusted users and trusted server paths. Keep the default
-                localhost bind and use SSH tunneling, a VPN, or a reverse proxy with authentication and network policy.
+                Do not expose it directly to the public internet. Pi Web assumes trusted users and trusted server paths.
+                For remote access, bind only to an interface that is already private and controlled: for example the
+                server's VPN IP, a private LAN IP, or localhost behind an SSH tunnel.
+              </p>
+              <p>
+                When you connect over a VPN, <code>127.0.0.1</code> usually means your own device, not the server, so the
+                server must listen on its VPN/private-network address or sit behind a tunnel/proxy.
+              </p>
+              <p>
+                Avoid <code>0.0.0.0</code> unless a firewall, VPN, or reverse proxy strictly limits who can reach the port.
               </p>
             </article>
 

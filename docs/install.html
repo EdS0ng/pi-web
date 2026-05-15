@@ -150,8 +150,8 @@
             <section id="remote-access">
               <h2>Remote access</h2>
               <p>
-                Pi Web binds to <code>127.0.0.1:8504</code> by default. For a remote server, keep that safe default and use an
-                SSH tunnel:
+                Pi Web binds to <code>127.0.0.1:8504</code> by default. For a remote server, the safest option is an SSH
+                tunnel:
               </p>
               <div class="code-card">
                 <div class="copy-row">
@@ -163,7 +163,9 @@
               </div>
               <div class="callout danger">
                 Pi Web is designed for trusted users and trusted server paths. Do not expose it directly to the public
-                internet without adding your own network controls, authentication, or reverse proxy policy.
+                internet. If you use a VPN or private network, bind Pi Web to the server's VPN/private IP, such as a
+                Tailscale/WireGuard/LAN address, and make sure that network policy limits access. Avoid
+                <code>0.0.0.0</code> unless a firewall, VPN, or authenticated reverse proxy strictly controls the port.
               </div>
             </section>
 
@@ -186,12 +188,29 @@
             <section id="configure">
               <h2>Configure</h2>
               <p>
-                The installer writes a config file under your user config directory. The web server defaults to
-                <code>127.0.0.1:8504</code> and stores Pi Web state in <code>~/.pi-web</code>.
+                The installer writes a config file to <code>~/.config/pi-web/config.json</code>, or to
+                <code>$XDG_CONFIG_HOME/pi-web/config.json</code> when <code>XDG_CONFIG_HOME</code> is set. You can choose a
+                different config file during install with <code>pi-web install --config /path/to/config.json</code>, or at
+                runtime with <code>PI_WEB_CONFIG=/path/to/config.json</code>.
+              </p>
+              <div class="code-card">
+                <div class="copy-row">
+                  <strong>Default config</strong>
+                  <button class="copy-button" data-copy="#config-example">Copy</button>
+                </div>
+                <pre id="config-example"><code>{
+  "host": "127.0.0.1",
+  "port": 8504,
+  "allowedHosts": []
+}</code></pre>
+              </div>
+              <p>
+                The web server defaults to <code>127.0.0.1:8504</code> and stores Pi Web state in <code>~/.pi-web</code>.
               </p>
               <ul>
-                <li><code>PI_WEB_PORT</code> or <code>PORT</code>: web server port.</li>
-                <li><code>PI_WEB_HOST</code>: web server bind host. Keep <code>127.0.0.1</code> unless you know why not.</li>
+                <li><code>PI_WEB_CONFIG</code>: path to a config JSON file. Defaults to <code>~/.config/pi-web/config.json</code>.</li>
+                <li><code>PI_WEB_PORT</code> or <code>PORT</code>: web server port. Overrides the config file.</li>
+                <li><code>PI_WEB_HOST</code>: web server bind host. Overrides the config file. Use <code>127.0.0.1</code> for local/tunnel-only access, or a specific VPN/private-network IP for trusted remote access.</li>
                 <li><code>PI_WEB_DATA_DIR</code>: data directory, default <code>~/.pi-web</code>.</li>
                 <li><code>PI_WEB_SESSIOND_SOCKET</code>: Unix socket path for daemon communication.</li>
               </ul>
@@ -199,15 +218,37 @@
 
             <section id="uninstall">
               <h2>Uninstall</h2>
-              <p>Remove the user services, then remove the npm package if you installed it globally.</p>
+              <p>
+                <code>pi-web uninstall</code> stops, disables, and removes the systemd user services. It does not remove
+                the npm package, config file, or data directory.
+              </p>
               <div class="code-card">
                 <div class="copy-row">
-                  <strong>Uninstall</strong>
+                  <strong>Uninstall services and package</strong>
                   <button class="copy-button" data-copy="#uninstall-commands">Copy</button>
                 </div>
                 <pre id="uninstall-commands"><code><span class="prompt">$</span> pi-web uninstall
 <span class="prompt">$</span> npm uninstall -g @jmfederico/pi-web</code></pre>
               </div>
+              <p>Optional cleanup, if you also want to delete Pi Web config and state:</p>
+              <div class="code-card">
+                <div class="copy-row">
+                  <strong>Delete config and data</strong>
+                  <button class="copy-button" data-copy="#delete-data-commands">Copy</button>
+                </div>
+                <pre id="delete-data-commands"><code><span class="prompt">$</span> CONFIG_FILE="${PI_WEB_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/pi-web/config.json}"
+<span class="prompt">$</span> DATA_DIR="${PI_WEB_DATA_DIR:-$HOME/.pi-web}"
+<span class="prompt">$</span> rm -f "$CONFIG_FILE"
+<span class="prompt">$</span> rmdir "$(dirname "$CONFIG_FILE")" 2&gt;/dev/null || true
+<span class="prompt">$</span> rm -rf "$DATA_DIR"
+
+<span class="comment"># If you configured a socket outside PI_WEB_DATA_DIR, remove it too:</span>
+<span class="prompt">$</span> [ -z "${PI_WEB_SESSIOND_SOCKET:-}" ] || rm -f "$PI_WEB_SESSIOND_SOCKET"</code></pre>
+              </div>
+              <p>
+                If you installed with <code>pi-web install --config /custom/path.json</code>, delete that custom file instead
+                of the default config path.
+              </p>
             </section>
           </div>
         </div>
