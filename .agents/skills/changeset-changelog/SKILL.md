@@ -49,11 +49,15 @@ Use the package name from `package.json`; for this repo it is `@jmfederico/pi-we
 
 ## Choosing patch/minor/major
 
-- `patch`: bug fixes, docs corrections, polish, release-process improvements, small compatible behavior changes.
-- `minor`: new user-facing capabilities that are backward compatible.
-- `major`: breaking changes to CLI, install expectations, package API, config, data formats, or supported runtime behavior.
+This repo uses CalVer shaped as semver: `MAJOR.YYYYMM.PATCH` (for example, `1.202605.3`). The semver `minor` position is the release month, not feature size. Because only the first component represents breaking compatibility, choose Changeset bump types this way:
 
-This repo uses versions like `1.202605.3`. Changesets still uses semver bump types. Routine releases are normally patch-level increments unless the user asks otherwise.
+- `patch`: all non-breaking changes, including bug fixes, docs corrections, polish, release-process improvements, small compatible behavior changes, and new backward-compatible user-facing capabilities.
+- `minor`: do not use for this repo. The release workflow sets `YYYYMM` from the release date.
+- `major`: use only when the user explicitly requests a breaking/major release. Breaking changes can include changes to CLI, install expectations, package API, config, data formats, or supported runtime behavior.
+
+If you believe a change is breaking but the user has not explicitly requested a major release, pause and ask the user to confirm whether to release it as a breaking major version or change the work so it remains non-breaking. Do not infer or perform a major version bump on your own.
+
+During release prep, the npm release skill always computes the version from the release date (`MAJOR.YYYYMM.PATCH`) and increments `PATCH` only when another release already exists for that major/month. Do not ask whether to choose a patch increase or a date change for normal releases.
 
 ## Writing good changeset text
 
