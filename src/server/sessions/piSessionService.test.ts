@@ -1,9 +1,8 @@
-/* eslint-disable @typescript-eslint/consistent-type-assertions */
-import type { AgentSession, AgentSessionRuntime, CreateAgentSessionRuntimeFactory, SessionManager } from "@earendil-works/pi-coding-agent";
+import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { SessionEventHub } from "../realtime/sessionEventHub.js";
 import type { GlobalSessionEvent, SessionUiEvent } from "../../shared/apiTypes.js";
-import { PiSessionService } from "./piSessionService.js";
+import { SessionEventHub } from "../realtime/sessionEventHub.js";
+import { PiSessionService, type PiAgentSession, type PiSessionManager, type PiSessionRuntime, type PiSessionServiceDependencies } from "./piSessionService.js";
 
 class CapturingSessionEventHub extends SessionEventHub {
   readonly sessionEvents: { sessionId: string; event: SessionUiEvent }[] = [];
@@ -18,41 +17,60 @@ class CapturingSessionEventHub extends SessionEventHub {
   }
 }
 
-function fakeSessionManager(cwd = "/workspace"): SessionManager {
+type SessionGateway = NonNullable<PiSessionServiceDependencies["sessionManager"]>;
+type RuntimeCreator = NonNullable<PiSessionServiceDependencies["createAgentRuntime"]>;
+
+interface TestSession extends PiAgentSession {
+  sessionName: string | undefined;
+  model: PiAgentSession["model"];
+  isStreaming: boolean;
+  isCompacting: boolean;
+  isBashRunning: boolean;
+  pendingMessageCount: number;
+  getSteeringMessages: () => readonly string[];
+  getFollowUpMessages: () => readonly string[];
+}
+
+function fakeSessionManager(cwd = "/workspace"): PiSessionManager {
   return {
     getCwd: () => cwd,
     getBranch: () => [],
-  } as unknown as SessionManager;
+    getLeafId: () => "leaf-1",
+  };
 }
 
-type RuntimeFactoryResult = Awaited<ReturnType<CreateAgentSessionRuntimeFactory>>;
-
-function asRuntimeFactoryResult(runtime: AgentSessionRuntime): RuntimeFactoryResult {
-  return runtime as unknown as RuntimeFactoryResult;
+function sessionRecord(id: string, cwd = "/workspace") {
+  return { id, path: `/sessions/${id}.jsonl`, cwd, created: new Date("2026-01-01T00:00:00.000Z"), modified: new Date("2026-01-01T00:01:00.000Z"), messageCount: 0, firstMessage: "", allMessagesText: "" };
 }
 
-function fakeRuntime(sessionId = "session-1") {
+function fakeRuntime(sessionId = "session-1", patch: Partial<TestSession> = {}) {
   const promptCalls: { text: string; options: unknown }[] = [];
   const calls = { abort: 0, clearQueue: 0, dispose: 0, prompt: promptCalls };
-  const session = {
+  const session: TestSession = {
     sessionId,
     sessionFile: `/tmp/${sessionId}.jsonl`,
     messages: [],
     sessionName: undefined,
     model: undefined,
-    thinkingLevel: undefined,
+    thinkingLevel: "off",
     isStreaming: false,
     isCompacting: false,
     isBashRunning: false,
     pendingMessageCount: 0,
     sessionManager: fakeSessionManager(),
+    modelRegistry: ModelRegistry.create(AuthStorage.inMemory()),
+    scopedModels: [],
+    extensionRunner: { getRegisteredCommands: () => [] },
+    promptTemplates: [],
+    resourceLoader: { getSkills: () => ({ skills: [] }) },
     subscribe: () => () => undefined,
-    getSessionStats: () => ({ tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0 }),
+    getSessionStats: () => ({ sessionId, totalMessages: 0, userMessages: 0, assistantMessages: 0, toolCalls: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0 }),
     getContextUsage: () => undefined,
     prompt: (text: string, options: unknown) => {
       calls.prompt.push({ text, options });
       return Promise.resolve();
     },
+    executeBash: () => Promise.resolve({ output: "", exitCode: 0, cancelled: false, truncated: false }),
     abort: () => {
       calls.abort += 1;
       return Promise.resolve();
@@ -63,37 +81,64 @@ function fakeRuntime(sessionId = "session-1") {
     },
     getSteeringMessages: () => [],
     getFollowUpMessages: () => [],
-  } as unknown as AgentSession;
-  const runtime = {
+    setModel: () => Promise.resolve(),
+    cycleModel: () => Promise.resolve(undefined),
+    getAvailableThinkingLevels: () => [],
+    setThinkingLevel: () => undefined,
+    cycleThinkingLevel: () => undefined,
+    setSessionName: (name: string) => { session.sessionName = name; },
+    compact: () => Promise.resolve({ summary: "", tokensBefore: 0 }),
+    getUserMessagesForForking: () => [],
+    ...patch,
+  };
+  const runtime: PiSessionRuntime = {
+    cwd: session.sessionManager.getCwd(),
     session,
     setRebindSession: () => undefined,
+    fork: () => Promise.resolve({ cancelled: false }),
     dispose: () => {
       calls.dispose += 1;
       return Promise.resolve();
     },
-  } as unknown as AgentSessionRuntime;
-  return { runtime, calls };
+  };
+  return { runtime, session, calls };
+}
+
+function runtimeCreator(runtime: PiSessionRuntime): RuntimeCreator {
+  return async () => {
+    await Promise.resolve();
+    return runtime;
+  };
+}
+
+function sessionGateway(records: ReturnType<typeof sessionRecord>[]): SessionGateway {
+  return {
+    create: () => fakeSessionManager(),
+    list: () => Promise.resolve(records),
+    listAll: () => Promise.resolve(records),
+    open: () => fakeSessionManager(),
+  };
 }
 
 describe("PiSessionService", () => {
-  it("starts sessions through an injected runtime factory", async () => {
+  it("starts sessions through an injected runtime creator", async () => {
     const hub = new CapturingSessionEventHub();
     const fake = fakeRuntime();
-    const createRuntime: CreateAgentSessionRuntimeFactory = () => Promise.resolve(asRuntimeFactoryResult(fake.runtime));
+    let createCalls = 0;
+    const createAgentRuntime: RuntimeCreator = async () => {
+      createCalls += 1;
+      await Promise.resolve();
+      return fake.runtime;
+    };
     const service = new PiSessionService(hub, {
-      createRuntime,
-      createAgentRuntime: () => Promise.resolve(fake.runtime),
-      sessionManager: {
-        create: () => fakeSessionManager(),
-        list: () => Promise.resolve([]),
-        listAll: () => Promise.resolve([]),
-        open: () => fakeSessionManager(),
-      },
+      createAgentRuntime,
+      sessionManager: sessionGateway([]),
       heartbeatIntervalMs: 60_000,
     });
 
     const session = await service.start("/workspace");
 
+    expect(createCalls).toBe(1);
     expect(session).toMatchObject({ id: "session-1", cwd: "/workspace", messageCount: 0 });
     expect(service.activeCount()).toBe(1);
     expect(hub.globalEvents.some((event) => event.type === "status.update" && event.status.sessionId === "session-1")).toBe(true);
@@ -114,8 +159,8 @@ describe("PiSessionService", () => {
       sessionManager: {
         create: () => fakeSessionManager(),
         list: () => Promise.resolve([
-          { id: "active", path: "/sessions/active.jsonl", cwd: "/workspace", created: new Date("2026-01-01T00:00:00.000Z"), modified: new Date("2026-01-01T00:01:00.000Z"), messageCount: 1, firstMessage: "hello", allMessagesText: "hello" },
-          { id: "archived", path: "/sessions/archived.jsonl", cwd: "/workspace", created: new Date("2026-01-01T00:00:00.000Z"), modified: new Date("2026-01-01T00:01:00.000Z"), messageCount: 2, firstMessage: "bye", allMessagesText: "bye" },
+          { ...sessionRecord("active"), messageCount: 1, firstMessage: "hello", allMessagesText: "hello" },
+          { ...sessionRecord("archived"), messageCount: 2, firstMessage: "bye", allMessagesText: "bye" },
         ]),
         listAll: () => Promise.resolve([]),
         open: () => fakeSessionManager(),
@@ -135,14 +180,8 @@ describe("PiSessionService", () => {
   it("sends prompts to an injected runtime without touching the SDK runtime", async () => {
     const fake = fakeRuntime("prompt-session");
     const service = new PiSessionService(new CapturingSessionEventHub(), {
-      createRuntime: () => Promise.resolve(asRuntimeFactoryResult(fake.runtime)),
-      createAgentRuntime: () => Promise.resolve(fake.runtime),
-      sessionManager: {
-        create: () => fakeSessionManager(),
-        list: () => Promise.resolve([]),
-        listAll: () => Promise.resolve([{ id: "prompt-session", path: "/sessions/prompt-session.jsonl", cwd: "/workspace", created: new Date("2026-01-01T00:00:00.000Z"), modified: new Date("2026-01-01T00:01:00.000Z"), messageCount: 0, firstMessage: "", allMessagesText: "" }]),
-        open: () => fakeSessionManager(),
-      },
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("prompt-session")]),
       heartbeatIntervalMs: 60_000,
     });
 
@@ -153,19 +192,14 @@ describe("PiSessionService", () => {
   });
 
   it("includes queued message details in session status", async () => {
-    const fake = fakeRuntime("status-session");
-    (fake.runtime.session as unknown as { pendingMessageCount: number; getSteeringMessages: () => string[]; getFollowUpMessages: () => string[] }).pendingMessageCount = 2;
-    (fake.runtime.session as unknown as { getSteeringMessages: () => string[] }).getSteeringMessages = () => ["adjust this turn"];
-    (fake.runtime.session as unknown as { getFollowUpMessages: () => string[] }).getFollowUpMessages = () => ["then do this"];
+    const fake = fakeRuntime("status-session", {
+      pendingMessageCount: 2,
+      getSteeringMessages: () => ["adjust this turn"],
+      getFollowUpMessages: () => ["then do this"],
+    });
     const service = new PiSessionService(new CapturingSessionEventHub(), {
-      createRuntime: () => Promise.resolve(asRuntimeFactoryResult(fake.runtime)),
-      createAgentRuntime: () => Promise.resolve(fake.runtime),
-      sessionManager: {
-        create: () => fakeSessionManager(),
-        list: () => Promise.resolve([]),
-        listAll: () => Promise.resolve([{ id: "status-session", path: "/sessions/status-session.jsonl", cwd: "/workspace", created: new Date("2026-01-01T00:00:00.000Z"), modified: new Date("2026-01-01T00:01:00.000Z"), messageCount: 0, firstMessage: "", allMessagesText: "" }]),
-        open: () => fakeSessionManager(),
-      },
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("status-session")]),
       heartbeatIntervalMs: 60_000,
     });
 
@@ -177,19 +211,14 @@ describe("PiSessionService", () => {
   });
 
   it("does not enqueue duplicate queued message text", async () => {
-    const fake = fakeRuntime("dedupe-session");
-    (fake.runtime.session as unknown as { isStreaming: boolean; pendingMessageCount: number; getFollowUpMessages: () => string[] }).isStreaming = true;
-    (fake.runtime.session as unknown as { pendingMessageCount: number }).pendingMessageCount = 1;
-    (fake.runtime.session as unknown as { getFollowUpMessages: () => string[] }).getFollowUpMessages = () => ["already queued"];
+    const fake = fakeRuntime("dedupe-session", {
+      isStreaming: true,
+      pendingMessageCount: 1,
+      getFollowUpMessages: () => ["already queued"],
+    });
     const service = new PiSessionService(new CapturingSessionEventHub(), {
-      createRuntime: () => Promise.resolve(asRuntimeFactoryResult(fake.runtime)),
-      createAgentRuntime: () => Promise.resolve(fake.runtime),
-      sessionManager: {
-        create: () => fakeSessionManager(),
-        list: () => Promise.resolve([]),
-        listAll: () => Promise.resolve([{ id: "dedupe-session", path: "/sessions/dedupe-session.jsonl", cwd: "/workspace", created: new Date("2026-01-01T00:00:00.000Z"), modified: new Date("2026-01-01T00:01:00.000Z"), messageCount: 0, firstMessage: "", allMessagesText: "" }]),
-        open: () => fakeSessionManager(),
-      },
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("dedupe-session")]),
       heartbeatIntervalMs: 60_000,
     });
 
@@ -201,17 +230,10 @@ describe("PiSessionService", () => {
 
   it("does not append queued prompts to the transcript before delivery", async () => {
     const hub = new CapturingSessionEventHub();
-    const fake = fakeRuntime("queued-session");
-    (fake.runtime.session as unknown as { isStreaming: boolean }).isStreaming = true;
+    const fake = fakeRuntime("queued-session", { isStreaming: true });
     const service = new PiSessionService(hub, {
-      createRuntime: () => Promise.resolve(asRuntimeFactoryResult(fake.runtime)),
-      createAgentRuntime: () => Promise.resolve(fake.runtime),
-      sessionManager: {
-        create: () => fakeSessionManager(),
-        list: () => Promise.resolve([]),
-        listAll: () => Promise.resolve([{ id: "queued-session", path: "/sessions/queued-session.jsonl", cwd: "/workspace", created: new Date("2026-01-01T00:00:00.000Z"), modified: new Date("2026-01-01T00:01:00.000Z"), messageCount: 0, firstMessage: "", allMessagesText: "" }]),
-        open: () => fakeSessionManager(),
-      },
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("queued-session")]),
       heartbeatIntervalMs: 60_000,
     });
 
@@ -225,14 +247,8 @@ describe("PiSessionService", () => {
   it("clears queued messages when aborting active work", async () => {
     const fake = fakeRuntime("abort-session");
     const service = new PiSessionService(new CapturingSessionEventHub(), {
-      createRuntime: () => Promise.resolve(asRuntimeFactoryResult(fake.runtime)),
-      createAgentRuntime: () => Promise.resolve(fake.runtime),
-      sessionManager: {
-        create: () => fakeSessionManager(),
-        list: () => Promise.resolve([]),
-        listAll: () => Promise.resolve([{ id: "abort-session", path: "/sessions/abort-session.jsonl", cwd: "/workspace", created: new Date("2026-01-01T00:00:00.000Z"), modified: new Date("2026-01-01T00:01:00.000Z"), messageCount: 0, firstMessage: "", allMessagesText: "" }]),
-        open: () => fakeSessionManager(),
-      },
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("abort-session")]),
       heartbeatIntervalMs: 60_000,
     });
 
@@ -246,61 +262,34 @@ describe("PiSessionService", () => {
 
   it("refreshes auth state and dedupes warnings when logout removes the current model's credentials", async () => {
     const hub = new CapturingSessionEventHub();
-    const fake = fakeRuntime("auth-session");
-    (fake.runtime.session as unknown as { model: { provider: string; id: string } }).model = { provider: "anthropic", id: "claude-3-5-sonnet" };
-
-    const credentials = new Map<string, { type: "api_key" | "oauth"; key?: string }>([["anthropic", { type: "api_key", key: "sk-test" }]]);
-    const authStorage = {
-      get(provider: string) { return credentials.get(provider); },
-      list(): string[] { return Array.from(credentials.keys()); },
-      getOAuthProviders: () => [],
-      hasAuth(provider: string): boolean { return credentials.has(provider); },
-      getAuthStatus(provider: string) { return credentials.has(provider) ? { configured: true, source: "stored" as const } : { configured: false }; },
-    };
-    let refreshCalls = 0;
-    const knownModels = [{ provider: "anthropic", id: "claude-3-5-sonnet" }];
-    const modelRegistry = {
-      authStorage,
-      refresh(): void { refreshCalls += 1; },
-      getAll: () => knownModels,
-      getAvailable: () => credentials.has("anthropic") ? knownModels : [],
-      find: (provider: string, id: string) => knownModels.find((model) => model.provider === provider && model.id === id),
-      getProviderDisplayName: (provider: string) => provider,
-      getProviderAuthStatus: (provider: string) => authStorage.getAuthStatus(provider),
-      hasConfiguredAuth: (model: { provider: string }) => credentials.has(model.provider),
-    };
-    (fake.runtime.session as unknown as { modelRegistry: typeof modelRegistry }).modelRegistry = modelRegistry;
+    const authStorage = AuthStorage.inMemory({ anthropic: { type: "api_key", key: "sk-test" } });
+    const modelRegistry = ModelRegistry.create(authStorage);
+    const model = modelRegistry.find("anthropic", "claude-3-5-sonnet-20241022");
+    if (model === undefined) throw new Error("Expected Anthropic model fixture");
+    const fake = fakeRuntime("auth-session", { model, modelRegistry });
 
     const service = new PiSessionService(hub, {
-      modelRegistry: modelRegistry as unknown as NonNullable<NonNullable<ConstructorParameters<typeof PiSessionService>[1]>["modelRegistry"]>,
-      createRuntime: () => Promise.resolve(asRuntimeFactoryResult(fake.runtime)),
-      createAgentRuntime: () => Promise.resolve(fake.runtime),
-      sessionManager: {
-        create: () => fakeSessionManager(),
-        list: () => Promise.resolve([]),
-        listAll: () => Promise.resolve([{ id: "auth-session", path: "/sessions/auth-session.jsonl", cwd: "/workspace", created: new Date("2026-01-01T00:00:00.000Z"), modified: new Date("2026-01-01T00:01:00.000Z"), messageCount: 0, firstMessage: "", allMessagesText: "" }]),
-        open: () => fakeSessionManager(),
-      },
+      modelRegistry,
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("auth-session")]),
       heartbeatIntervalMs: 60_000,
     });
 
     await service.status("auth-session");
     hub.sessionEvents.length = 0;
     hub.globalEvents.length = 0;
-    const refreshBefore = refreshCalls;
 
-    credentials.delete("anthropic");
+    authStorage.logout("anthropic");
     service.applyAuthChange({ removedProviderId: "anthropic" });
     service.applyAuthChange({ removedProviderId: "anthropic" });
 
-    const warningCount = () => hub.sessionEvents.filter(({ event }) => event.type === "command.output" && event.level === "error" && event.message.includes("anthropic/claude-3-5-sonnet")).length;
-    expect(refreshCalls).toBeGreaterThan(refreshBefore);
+    const warningCount = () => hub.sessionEvents.filter(({ event }) => event.type === "command.output" && event.level === "error" && event.message.includes("anthropic/claude-3-5-sonnet-20241022")).length;
     expect(warningCount()).toBe(1);
     expect(hub.globalEvents.some((event) => event.type === "status.update" && event.status.sessionId === "auth-session")).toBe(true);
 
-    credentials.set("anthropic", { type: "api_key", key: "sk-new" });
+    authStorage.set("anthropic", { type: "api_key", key: "sk-new" });
     service.applyAuthChange();
-    credentials.delete("anthropic");
+    authStorage.logout("anthropic");
     service.applyAuthChange({ removedProviderId: "anthropic" });
     expect(warningCount()).toBe(2);
 
@@ -310,14 +299,8 @@ describe("PiSessionService", () => {
   it("clears queued messages when stopping a session runtime", async () => {
     const fake = fakeRuntime("stop-session");
     const service = new PiSessionService(new CapturingSessionEventHub(), {
-      createRuntime: () => Promise.resolve(asRuntimeFactoryResult(fake.runtime)),
-      createAgentRuntime: () => Promise.resolve(fake.runtime),
-      sessionManager: {
-        create: () => fakeSessionManager(),
-        list: () => Promise.resolve([]),
-        listAll: () => Promise.resolve([{ id: "stop-session", path: "/sessions/stop-session.jsonl", cwd: "/workspace", created: new Date("2026-01-01T00:00:00.000Z"), modified: new Date("2026-01-01T00:01:00.000Z"), messageCount: 0, firstMessage: "", allMessagesText: "" }]),
-        open: () => fakeSessionManager(),
-      },
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      sessionManager: sessionGateway([sessionRecord("stop-session")]),
       heartbeatIntervalMs: 60_000,
     });
 

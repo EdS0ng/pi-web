@@ -1,9 +1,8 @@
-/* eslint-disable @typescript-eslint/consistent-type-assertions */
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import { SessionEventHub } from "./sessionEventHub.js";
+import { SessionEventHub, type RealtimeSocket } from "./sessionEventHub.js";
 
-class FakeSocket extends EventEmitter {
+class FakeSocket extends EventEmitter implements RealtimeSocket {
   readonly OPEN = 1;
   readyState = this.OPEN;
   send = vi.fn();
@@ -14,8 +13,8 @@ describe("SessionEventHub", () => {
     const hub = new SessionEventHub();
     const sessionSocket = new FakeSocket();
     const otherSocket = new FakeSocket();
-    hub.add("s1", sessionSocket as never);
-    hub.add("s2", otherSocket as never);
+    hub.add("s1", sessionSocket);
+    hub.add("s2", otherSocket);
 
     hub.publish("s1", { type: "assistant.delta", text: "hello" });
 
@@ -28,8 +27,8 @@ describe("SessionEventHub", () => {
     const closed = new FakeSocket();
     const removed = new FakeSocket();
     closed.readyState = 3;
-    hub.add("s1", closed as never);
-    hub.add("s1", removed as never);
+    hub.add("s1", closed);
+    hub.add("s1", removed);
     removed.emit("close");
 
     hub.publish("s1", { type: "session.error", message: "boom" });
@@ -42,8 +41,8 @@ describe("SessionEventHub", () => {
     const hub = new SessionEventHub();
     const globalSocket = new FakeSocket();
     const sessionSocket = new FakeSocket();
-    hub.addGlobal(globalSocket as never);
-    hub.add("s1", sessionSocket as never);
+    hub.addGlobal(globalSocket);
+    hub.add("s1", sessionSocket);
 
     const status = {
       sessionId: "s1",

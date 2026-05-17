@@ -1,25 +1,66 @@
 import crypto from "node:crypto";
-import type { AgentSession, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
-import type { SessionEventHub } from "../realtime/sessionEventHub.js";
+import type { SessionUiEvent } from "../../shared/apiTypes.js";
 import type { ClientCommandResult, ClientSession } from "../types.js";
 import { isBuiltinCommand } from "./builtinCommands.js";
-import type { ActiveSession, GetActiveSession } from "./sessionRuntimeStore.js";
+
+export interface CommandSession {
+  sessionId: string;
+  sessionFile: string | undefined;
+  sessionName: string | undefined;
+  messages: readonly unknown[];
+  isStreaming: boolean;
+  isBashRunning: boolean;
+  isCompacting: boolean;
+  pendingMessageCount: number;
+  promptTemplates: readonly { name: string }[];
+  extensionRunner: { getRegisteredCommands(): readonly { invocationName: string }[] };
+  resourceLoader: { getSkills(): { skills: readonly { name: string }[] } };
+  sessionManager: { getLeafId(): string | null; getHeader?: () => { parentSession?: string } | null | undefined };
+  setSessionName: (name: string) => void;
+  compact: (instructions?: string) => Promise<{ summary: string; tokensBefore: number }>;
+  getSessionStats: () => {
+    sessionId: string;
+    totalMessages: number;
+    userMessages: number;
+    assistantMessages: number;
+    toolCalls: number;
+    tokens: { input: number; output: number; total: number };
+    cost: number;
+  };
+  getUserMessagesForForking: () => readonly { entryId: string; text: string }[];
+}
+
+export interface CommandRuntime<TSession extends CommandSession = CommandSession> {
+  cwd: string;
+  session: TSession;
+  fork: (entryId: string, options?: { position?: "before" | "at" }) => Promise<{ cancelled: boolean }>;
+}
+
+export interface CommandActiveSession<TSession extends CommandSession = CommandSession> {
+  runtime: CommandRuntime<TSession>;
+}
+
+export type GetCommandActiveSession<TSession extends CommandSession = CommandSession> = (sessionId: string) => Promise<CommandActiveSession<TSession>>;
+
+export interface CommandEventPublisher {
+  publish(sessionId: string, event: SessionUiEvent): void;
+}
 
 interface PendingCommandSelect {
   sessionId: string;
   command: "fork";
 }
 
-export class SessionCommandService {
+export class SessionCommandService<TSession extends CommandSession = CommandSession> {
   private readonly pendingSelects = new Map<string, PendingCommandSelect>();
 
   constructor(
-    private readonly getActive: GetActiveSession,
+    private readonly getActive: GetCommandActiveSession<TSession>,
     private readonly prompt: (sessionId: string, text: string) => Promise<void>,
-    private readonly events: SessionEventHub,
+    private readonly events: CommandEventPublisher,
     private readonly lifecycle: {
-      onCompactionStart?: (session: AgentSession) => void;
-      onCompactionEnd?: (session: AgentSession, result: "success" | "error", detail?: string) => void;
+      onCompactionStart?: (session: TSession) => void;
+      onCompactionEnd?: (session: TSession, result: "success" | "error", detail?: string) => void;
     } = {},
   ) {}
 
@@ -58,13 +99,13 @@ export class SessionCommandService {
     return { type: "done", message: "Session forked", session: clientSessionFromRuntime(active.runtime) };
   }
 
-  private nameSession(active: ActiveSession, name: string): ClientCommandResult {
+  private nameSession(active: CommandActiveSession<TSession>, name: string): ClientCommandResult {
     if (name === "") return { type: "unsupported", message: "Usage: /name <session name>" };
     active.runtime.session.setSessionName(name);
     return { type: "done", message: `Session named: ${name}`, session: clientSessionFromRuntime(active.runtime) };
   }
 
-  private compact(session: AgentSession, instructions: string): ClientCommandResult {
+  private compact(session: TSession, instructions: string): ClientCommandResult {
     this.lifecycle.onCompactionStart?.(session);
     void session.compact(instructions === "" ? undefined : instructions)
       .then((result) => {
@@ -84,7 +125,7 @@ export class SessionCommandService {
     return { type: "done", message: "Compaction started…" };
   }
 
-  private async clone(active: ActiveSession): Promise<ClientCommandResult> {
+  private async clone(active: CommandActiveSession<TSession>): Promise<ClientCommandResult> {
     if (sessionHasActiveWork(active.runtime.session)) return forkActiveUnsupported("clone");
     const leafId = active.runtime.session.sessionManager.getLeafId();
     if (leafId === null || leafId === "") return { type: "unsupported", message: "Cannot clone: no current session entry" };
@@ -93,7 +134,7 @@ export class SessionCommandService {
     return { type: "done", message: "Session cloned", session: clientSessionFromRuntime(active.runtime) };
   }
 
-  private fork(active: ActiveSession): ClientCommandResult {
+  private fork(active: CommandActiveSession<TSession>): ClientCommandResult {
     if (sessionHasActiveWork(active.runtime.session)) return forkActiveUnsupported("fork");
     const messages = active.runtime.session.getUserMessagesForForking();
     if (!messages.length) return { type: "unsupported", message: "No user messages to fork from" };
@@ -107,14 +148,14 @@ export class SessionCommandService {
     };
   }
 
-  private isRuntimeCommand(session: AgentSession, name: string): boolean {
+  private isRuntimeCommand(session: TSession, name: string): boolean {
     return session.extensionRunner.getRegisteredCommands().some((command) => command.invocationName === name)
       || session.promptTemplates.some((template) => template.name === name)
       || session.resourceLoader.getSkills().skills.some((skill) => `skill:${skill.name}` === name);
   }
 }
 
-function clientSessionFromRuntime(runtime: AgentSessionRuntime): ClientSession {
+function clientSessionFromRuntime(runtime: CommandRuntime): ClientSession {
   const session = runtime.session;
   const parentSessionPath = typeof session.sessionManager.getHeader === "function" ? session.sessionManager.getHeader()?.parentSession : undefined;
   return {
@@ -130,7 +171,7 @@ function clientSessionFromRuntime(runtime: AgentSessionRuntime): ClientSession {
   };
 }
 
-function sessionHasActiveWork(session: AgentSession): boolean {
+function sessionHasActiveWork(session: CommandSession): boolean {
   return session.isStreaming || session.isBashRunning || session.isCompacting || session.pendingMessageCount > 0;
 }
 
@@ -138,7 +179,7 @@ function forkActiveUnsupported(command: "fork" | "clone"): ClientCommandResult {
   return { type: "unsupported", message: `Cannot ${command} while the session is active. Stop current activity before ${command === "fork" ? "forking" : "cloning"}.` };
 }
 
-function formatSessionStats(session: AgentSession): string {
+function formatSessionStats(session: CommandSession): string {
   const stats = session.getSessionStats();
   return [
     `Session: ${stats.sessionId}`,

@@ -1,11 +1,17 @@
 import type { GlobalSessionEvent, RealtimeEvent, SessionUiEvent } from "../../shared/apiTypes.js";
-import type { WebSocket } from "ws";
+
+export interface RealtimeSocket {
+  readonly OPEN: number;
+  readyState: number;
+  send(payload: string): void;
+  on(event: "close", listener: () => void): unknown;
+}
 
 export class SessionEventHub {
-  private readonly socketsBySession = new Map<string, Set<WebSocket>>();
-  private readonly globalSockets = new Set<WebSocket>();
+  private readonly socketsBySession = new Map<string, Set<RealtimeSocket>>();
+  private readonly globalSockets = new Set<RealtimeSocket>();
 
-  add(sessionId: string, socket: WebSocket): void {
+  add(sessionId: string, socket: RealtimeSocket): void {
     let sockets = this.socketsBySession.get(sessionId);
     if (!sockets) {
       sockets = new Set();
@@ -17,7 +23,7 @@ export class SessionEventHub {
     });
   }
 
-  addGlobal(socket: WebSocket): void {
+  addGlobal(socket: RealtimeSocket): void {
     this.globalSockets.add(socket);
     socket.on("close", () => this.globalSockets.delete(socket));
   }

@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   AuthStorage,
   createAgentSessionFromServices,
@@ -7,7 +8,6 @@ import {
   getAgentDir,
   ModelRegistry,
   SessionManager,
-  type AgentSession,
   type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
 import type { ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionModel, ClientSessionStatus, ClientThinkingLevel, SessionUiEvent } from "../types.js";
@@ -29,10 +29,81 @@ function authLossWarningKey(sessionId: string, provider: string, modelId: string
 }
 
 type SessionArchiveRepository = Pick<SessionArchiveStore, "list" | "archive" | "restore" | "isArchived">;
-type SessionManagerGateway = Pick<typeof SessionManager, "list" | "create" | "listAll" | "open">;
-type CreateAgentRuntime = typeof createAgentSessionRuntime;
+type AgentModel = Model<Api>;
+type ModelRegistryInstance = ReturnType<typeof ModelRegistry.create>;
 
-function createDefaultRuntimeFactory(authStorage: AuthStorage, modelRegistry: ReturnType<typeof ModelRegistry.create>): CreateAgentSessionRuntimeFactory {
+export interface PiSessionManager {
+  getCwd(): string;
+  getBranch(): unknown[];
+  getLeafId(): string | null;
+  getHeader?(): { parentSession?: string } | null | undefined;
+}
+
+export interface PiSessionManagerGateway {
+  list(cwd: string): Promise<{ id: string; path: string; cwd: string; created: Date; modified: Date; messageCount: number; firstMessage: string; allMessagesText: string; name?: string; parentSessionPath?: string }[]>;
+  create(cwd: string): PiSessionManager;
+  listAll(): Promise<{ id: string; path: string; cwd: string; created: Date; modified: Date; messageCount: number; firstMessage: string; allMessagesText: string }[]>;
+  open(path: string): PiSessionManager;
+}
+
+export interface PiAgentSession {
+  modelRegistry: ModelRegistryInstance;
+  sessionManager: PiSessionManager;
+  scopedModels: readonly { model: AgentModel; thinkingLevel?: ClientThinkingLevel }[];
+  sessionId: string;
+  sessionFile: string | undefined;
+  sessionName: string | undefined;
+  messages: readonly unknown[];
+  model: AgentModel | undefined;
+  thinkingLevel: ClientThinkingLevel;
+  isStreaming: boolean;
+  isCompacting: boolean;
+  isBashRunning: boolean;
+  pendingMessageCount: number;
+  extensionRunner: { getRegisteredCommands(): readonly { invocationName: string; description?: string }[] };
+  promptTemplates: readonly { name: string; description?: string }[];
+  resourceLoader: { getSkills(): { skills: readonly { name: string; description?: string }[] } };
+  subscribe(listener: (event: unknown) => void): () => void;
+  compact(instructions?: string): Promise<{ summary: string; tokensBefore: number }>;
+  getUserMessagesForForking(): readonly { entryId: string; text: string }[];
+  getSessionStats(): { sessionId: string; totalMessages: number; userMessages: number; assistantMessages: number; toolCalls: number; tokens: ClientSessionStatus["tokens"]; cost: number };
+  getContextUsage(): ClientSessionStatus["contextUsage"] | undefined;
+  prompt(text: string, options?: { streamingBehavior?: "steer" | "followUp" }): Promise<void>;
+  executeBash(command: string, onChunk?: (chunk: string) => void, options?: { excludeFromContext?: boolean }): Promise<{ output: string; exitCode: number | undefined; cancelled: boolean; truncated: boolean; fullOutputPath?: string }>;
+  abort(): Promise<void>;
+  clearQueue(): { steering: string[]; followUp: string[] };
+  getSteeringMessages(): readonly string[];
+  getFollowUpMessages(): readonly string[];
+  setModel(model: AgentModel): Promise<void>;
+  cycleModel(direction?: "forward" | "backward"): Promise<{ model: AgentModel } | undefined>;
+  getAvailableThinkingLevels(): ClientThinkingLevel[];
+  setThinkingLevel(level: ClientThinkingLevel): void;
+  cycleThinkingLevel(): ClientThinkingLevel | undefined;
+  setSessionName(name: string): void;
+}
+
+export interface PiSessionRuntime {
+  readonly cwd: string;
+  readonly session: PiAgentSession;
+  setRebindSession(rebindSession?: (session: PiAgentSession) => Promise<void>): void;
+  fork(entryId: string, options?: { position?: "before" | "at" }): Promise<{ cancelled: boolean }>;
+  dispose(): Promise<void>;
+}
+
+interface CreateAgentRuntimeOptions {
+  cwd: string;
+  agentDir: string;
+  sessionManager: PiSessionManager;
+}
+
+type CreateAgentRuntime = (createRuntime: CreateAgentSessionRuntimeFactory, options: CreateAgentRuntimeOptions) => Promise<PiSessionRuntime>;
+
+function defaultCreateAgentRuntime(createRuntime: CreateAgentSessionRuntimeFactory, options: CreateAgentRuntimeOptions): Promise<PiSessionRuntime> {
+  if (!(options.sessionManager instanceof SessionManager)) throw new Error("Default runtime creation requires an SDK SessionManager");
+  return createAgentSessionRuntime(createRuntime, { ...options, sessionManager: options.sessionManager });
+}
+
+function createDefaultRuntimeFactory(authStorage: AuthStorage, modelRegistry: ModelRegistryInstance): CreateAgentSessionRuntimeFactory {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
     const services = await createAgentSessionServices({ cwd, agentDir, authStorage, modelRegistry });
     const options = sessionStartEvent === undefined
@@ -46,25 +117,25 @@ function createDefaultRuntimeFactory(authStorage: AuthStorage, modelRegistry: Re
 export interface PiSessionServiceDependencies {
   archiveStore?: SessionArchiveRepository;
   agentDir?: string;
-  sessionManager?: SessionManagerGateway;
+  sessionManager?: PiSessionManagerGateway;
   createRuntime?: CreateAgentSessionRuntimeFactory;
   createAgentRuntime?: CreateAgentRuntime;
-  modelRegistry?: ReturnType<typeof ModelRegistry.create>;
+  modelRegistry?: ModelRegistryInstance;
   heartbeatIntervalMs?: number;
 }
 
 export class PiSessionService {
-  private readonly active = new Map<string, ActiveSession>();
+  private readonly active = new Map<string, ActiveSession<PiSessionRuntime>>();
   private readonly activities = new Map<string, { phase: "active" | "idle" | "error"; label: string; detail?: string; at: string }>();
   private readonly heartbeat: NodeJS.Timeout;
-  private readonly commandService: SessionCommandService;
+  private readonly commandService: SessionCommandService<PiAgentSession>;
   private readonly authLossWarnings = new Set<string>();
   private readonly archiveStore: SessionArchiveRepository;
   private readonly agentDir: string;
-  private readonly sessionManager: SessionManagerGateway;
+  private readonly sessionManager: PiSessionManagerGateway;
   private readonly createRuntime: CreateAgentSessionRuntimeFactory;
   private readonly createAgentRuntime: CreateAgentRuntime;
-  private readonly modelRegistry: ReturnType<typeof ModelRegistry.create>;
+  private readonly modelRegistry: ModelRegistryInstance;
 
   constructor(private readonly events: SessionEventHub, deps: PiSessionServiceDependencies = {}) {
     this.archiveStore = deps.archiveStore ?? new SessionArchiveStore();
@@ -72,7 +143,7 @@ export class PiSessionService {
     this.sessionManager = deps.sessionManager ?? SessionManager;
     this.modelRegistry = deps.modelRegistry ?? ModelRegistry.create(AuthStorage.create());
     this.createRuntime = deps.createRuntime ?? createDefaultRuntimeFactory(this.modelRegistry.authStorage, this.modelRegistry);
-    this.createAgentRuntime = deps.createAgentRuntime ?? createAgentSessionRuntime;
+    this.createAgentRuntime = deps.createAgentRuntime ?? defaultCreateAgentRuntime;
     this.heartbeat = setInterval(() => { this.publishHeartbeats(); }, deps.heartbeatIntervalMs ?? 2000);
     this.commandService = new SessionCommandService(
       (sessionId) => this.getActive(sessionId),
@@ -217,10 +288,10 @@ export class PiSessionService {
       commands.push({ name: command.invocationName, ...(command.description === undefined ? {} : { description: command.description }), source: "extension" });
     }
     for (const template of session.promptTemplates) {
-      commands.push({ name: template.name, description: template.description, source: "prompt" });
+      commands.push({ name: template.name, ...(template.description === undefined ? {} : { description: template.description }), source: "prompt" });
     }
     for (const skill of session.resourceLoader.getSkills().skills) {
-      commands.push({ name: `skill:${skill.name}`, description: skill.description, source: "skill" });
+      commands.push({ name: `skill:${skill.name}`, ...(skill.description === undefined ? {} : { description: skill.description }), source: "skill" });
     }
     return commands.sort((a, b) => a.name.localeCompare(b.name));
   }
@@ -332,11 +403,11 @@ export class PiSessionService {
     if (await this.archiveStore.isArchived(sessionId)) throw new Error("Archived sessions are read-only. Restore the session to continue.");
   }
 
-  private async getOrOpen(sessionId: string): Promise<AgentSession> {
+  private async getOrOpen(sessionId: string): Promise<PiAgentSession> {
     return (await this.getActive(sessionId)).runtime.session;
   }
 
-  private async getActive(sessionId: string): Promise<ActiveSession> {
+  private async getActive(sessionId: string): Promise<ActiveSession<PiSessionRuntime>> {
     const active = this.active.get(sessionId);
     if (active) return active;
 
@@ -345,9 +416,9 @@ export class PiSessionService {
     return this.create(this.sessionManager.open(match.path), match.cwd);
   }
 
-  private async create(sessionManager: SessionManager, cwd: string): Promise<ActiveSession> {
+  private async create(sessionManager: PiSessionManager, cwd: string): Promise<ActiveSession<PiSessionRuntime>> {
     const runtime = await this.createAgentRuntime(this.createRuntime, { cwd, agentDir: this.agentDir, sessionManager });
-    const active: ActiveSession = { runtime, unsubscribe: noop };
+    const active: ActiveSession<PiSessionRuntime> = { runtime, unsubscribe: noop };
     this.bindRuntime(active);
     runtime.setRebindSession(() => {
       this.bindRuntime(active);
@@ -358,7 +429,7 @@ export class PiSessionService {
     return active;
   }
 
-  private bindRuntime(active: ActiveSession): void {
+  private bindRuntime(active: ActiveSession<PiSessionRuntime>): void {
     active.unsubscribe();
     for (const [sessionId, candidate] of this.active.entries()) {
       if (candidate === active) this.active.delete(sessionId);
@@ -372,7 +443,7 @@ export class PiSessionService {
     this.active.set(session.sessionId, active);
   }
 
-  private maybeGenerateSessionName(session: AgentSession, firstMessage: string): void {
+  private maybeGenerateSessionName(session: PiAgentSession, firstMessage: string): void {
     if (session.sessionName !== undefined || session.messages.length !== 0 || session.isStreaming || session.isCompacting) return;
     const model = session.model;
     if (model === undefined) return;
@@ -384,7 +455,7 @@ export class PiSessionService {
     });
   }
 
-  private applyGeneratedSessionName(session: AgentSession, name: string | undefined): void {
+  private applyGeneratedSessionName(session: PiAgentSession, name: string | undefined): void {
     if (name === undefined || session.sessionName !== undefined) return;
     session.setSessionName(name);
     this.publishSessionName(session);
@@ -400,7 +471,7 @@ export class PiSessionService {
     }
   }
 
-  private syncCurrentModelAuthWarning(session: AgentSession, removedProviderId: string | undefined): void {
+  private syncCurrentModelAuthWarning(session: PiAgentSession, removedProviderId: string | undefined): void {
     const model = session.model;
     if (model === undefined) return;
     if (model.provider === "unknown" && model.id === "unknown") return;
@@ -427,7 +498,7 @@ export class PiSessionService {
     }
   }
 
-  private publishSessionName(session: AgentSession): void {
+  private publishSessionName(session: PiAgentSession): void {
     const event = session.sessionName === undefined
       ? { type: "session.name", sessionId: session.sessionId } as const
       : { type: "session.name", sessionId: session.sessionId, name: session.sessionName } as const;
@@ -447,7 +518,7 @@ export class PiSessionService {
     }
   }
 
-  private activityLabelFromStatus(session: AgentSession): string {
+  private activityLabelFromStatus(session: PiAgentSession): string {
     if (session.isCompacting) return "compacting";
     if (session.isBashRunning) return "running bash";
     if (session.isStreaming) return "agent running";
@@ -455,7 +526,7 @@ export class PiSessionService {
     return "active";
   }
 
-  private publishActivityForEvent(session: AgentSession, event: unknown): void {
+  private publishActivityForEvent(session: PiAgentSession, event: unknown): void {
     const eventType = getString(event, "type");
     if (eventType === undefined) return;
     if (eventType === "agent_start") { this.publishActivity(session, "agent running", "active"); return; }
@@ -482,7 +553,7 @@ export class PiSessionService {
     this.publishActivity(session, eventType.replaceAll("_", " "), "active");
   }
 
-  private publishActivity(session: AgentSession, label: string, phase: "active" | "idle" | "error", detail?: string): void {
+  private publishActivity(session: PiAgentSession, label: string, phase: "active" | "idle" | "error", detail?: string): void {
     const at = new Date().toISOString();
     const stored = detail === undefined ? { phase, label, at } : { phase, label, detail, at };
     this.activities.set(session.sessionId, stored);
@@ -491,13 +562,13 @@ export class PiSessionService {
     this.events.publishGlobal({ type: "activity.update", activity });
   }
 
-  private publishStatus(session: AgentSession): void {
+  private publishStatus(session: PiAgentSession): void {
     const status = this.statusFromSession(session);
     this.events.publish(session.sessionId, { type: "status.update", status });
     this.events.publishGlobal({ type: "status.update", status });
   }
 
-  private statusFromSession(session: AgentSession): ClientSessionStatus {
+  private statusFromSession(session: PiAgentSession): ClientSessionStatus {
     const stats = session.getSessionStats();
     const model = session.model === undefined ? undefined : modelToClientModel(session.model);
     const contextUsage = session.getContextUsage();
@@ -517,7 +588,7 @@ export class PiSessionService {
   }
 }
 
-function modelToClientModel(model: AgentSession["model"]): ClientSessionModel {
+function modelToClientModel(model: PiAgentSession["model"]): ClientSessionModel {
   if (model === undefined) return {};
   const name = getString(model, "name");
   const reasoning = getProperty(model, "reasoning");
@@ -542,15 +613,15 @@ async function clearParentSession(sessionFile: string): Promise<void> {
   await writeFile(sessionFile, `${JSON.stringify(header)}${rest}`, "utf8");
 }
 
-function clearSessionQueue(session: AgentSession): void {
+function clearSessionQueue(session: PiAgentSession): void {
   session.clearQueue();
 }
 
-function hasQueuedMessageText(session: AgentSession, text: string): boolean {
+function hasQueuedMessageText(session: PiAgentSession, text: string): boolean {
   return queuedMessagesFromSession(session).some((message) => message.text === text);
 }
 
-function queuedMessagesFromSession(session: AgentSession): { kind: "steer" | "followUp"; text: string }[] {
+function queuedMessagesFromSession(session: PiAgentSession): { kind: "steer" | "followUp"; text: string }[] {
   return [
     ...session.getSteeringMessages().map((text) => ({ kind: "steer" as const, text })),
     ...session.getFollowUpMessages().map((text) => ({ kind: "followUp" as const, text })),
@@ -561,13 +632,18 @@ function userTextMessage(text: string): { role: "user"; content: string } {
   return { role: "user", content: text };
 }
 
-function historyMessages(session: AgentSession): unknown[] {
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function historyMessages(session: PiAgentSession): unknown[] {
   const messages: unknown[] = [];
   for (const entry of session.sessionManager.getBranch()) {
-    if (entry.type === "message") messages.push(entry.message);
-    else if (entry.type === "custom_message" && entry.display) messages.push({ role: "custom", content: entry.content, customType: entry.customType, details: entry.details });
-    else if (entry.type === "compaction") messages.push({ role: "system", source: "compaction", content: `Compacted history:\n\n${entry.summary}` });
-    else if (entry.type === "branch_summary") messages.push({ role: "system", source: "branch_summary", content: `Branch summary:\n\n${entry.summary}` });
+    if (!isRecord(entry)) continue;
+    if (entry["type"] === "message") messages.push(entry["message"]);
+    else if (entry["type"] === "custom_message" && entry["display"] === true) messages.push({ role: "custom", content: entry["content"], customType: entry["customType"], details: entry["details"] });
+    else if (entry["type"] === "compaction") messages.push({ role: "system", source: "compaction", content: `Compacted history:\n\n${stringValue(entry["summary"])}` });
+    else if (entry["type"] === "branch_summary") messages.push({ role: "system", source: "branch_summary", content: `Branch summary:\n\n${stringValue(entry["summary"])}` });
   }
   return messages;
 }

@@ -1,8 +1,6 @@
-import type { AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
-
-export interface ActiveSession {
-  runtime: AgentSessionRuntime;
+export interface ActiveSession<TRuntime> {
+  runtime: TRuntime;
   unsubscribe: () => void;
 }
 
-export type GetActiveSession = (sessionId: string) => Promise<ActiveSession>;
+export type GetActiveSession<TRuntime> = (sessionId: string) => Promise<ActiveSession<TRuntime>>;

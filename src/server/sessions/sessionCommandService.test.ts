@@ -1,13 +1,21 @@
-/* eslint-disable @typescript-eslint/consistent-type-assertions */
 import { describe, expect, it, vi } from "vitest";
-import { SessionCommandService } from "./sessionCommandService.js";
+import type { SessionUiEvent } from "../../shared/apiTypes.js";
+import { SessionCommandService, type CommandActiveSession, type CommandSession } from "./sessionCommandService.js";
 
-function activeSession(overrides: Record<string, unknown> = {}) {
-  const session = {
+interface TestCommandSession extends CommandSession {
+  sessionName: string | undefined;
+}
+
+function activeSession(overrides: Partial<TestCommandSession> = {}): CommandActiveSession<TestCommandSession> {
+  const session: TestCommandSession = {
     sessionId: "s1",
     sessionFile: "/tmp/s1.jsonl",
-    sessionName: undefined as string | undefined,
+    sessionName: undefined,
     messages: [{}, {}],
+    isStreaming: false,
+    isBashRunning: false,
+    isCompacting: false,
+    pendingMessageCount: 0,
     promptTemplates: [{ name: "template" }],
     extensionRunner: { getRegisteredCommands: () => [{ invocationName: "ext" }] },
     resourceLoader: { getSkills: () => ({ skills: [{ name: "skill-a" }] }) },
@@ -29,27 +37,27 @@ function activeSession(overrides: Record<string, unknown> = {}) {
     getUserMessagesForForking: vi.fn(() => [{ entryId: "m1", text: "hello ".repeat(40) }]),
     ...overrides,
   };
-  const runtime = { cwd: "/work", session, fork: vi.fn(async () => {
-    await Promise.resolve();
-    return { cancelled: false };
-  }) };
-  return { runtime };
+  return { runtime: { cwd: "/work", session, fork: vi.fn(() => Promise.resolve({ cancelled: false })) } };
 }
 
-async function getActive(active: ReturnType<typeof activeSession>): Promise<never> {
+async function getActive(active: CommandActiveSession<TestCommandSession>): Promise<CommandActiveSession> {
   await Promise.resolve();
-  return active as never;
+  return active;
 }
 
 async function promptAccepted(): Promise<void> {
   await Promise.resolve();
 }
 
+function eventPublisher() {
+  return { publish: vi.fn<(sessionId: string, event: SessionUiEvent) => void>() };
+}
+
 describe("SessionCommandService", () => {
   it("rejects unknown commands and forwards runtime commands as prompts", async () => {
     const active = activeSession();
     const prompt = vi.fn(promptAccepted);
-    const service = new SessionCommandService(() => getActive(active), prompt, { publish: vi.fn() } as never);
+    const service = new SessionCommandService(() => getActive(active), prompt, eventPublisher());
 
     await expect(service.run("s1", "/missing")).resolves.toEqual({ type: "unsupported", message: "Unknown command: /missing" });
     await expect(service.run("s1", "/ext arg")).resolves.toEqual({ type: "done", message: "Accepted /ext arg" });
@@ -60,7 +68,7 @@ describe("SessionCommandService", () => {
 
   it("renames sessions and returns updated client session metadata", async () => {
     const active = activeSession();
-    const service = new SessionCommandService(() => getActive(active), vi.fn(), { publish: vi.fn() } as never);
+    const service = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
 
     await expect(service.run("s1", "/name Useful name")).resolves.toMatchObject({
       type: "done",
@@ -72,7 +80,7 @@ describe("SessionCommandService", () => {
 
   it("formats session stats", async () => {
     const active = activeSession();
-    const service = new SessionCommandService(() => getActive(active), vi.fn(), { publish: vi.fn() } as never);
+    const service = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
 
     await expect(service.run("s1", "/session")).resolves.toEqual({
       type: "done",
@@ -82,8 +90,8 @@ describe("SessionCommandService", () => {
 
   it("starts compaction and publishes completion", async () => {
     const active = activeSession();
-    const events = { publish: vi.fn() };
-    const service = new SessionCommandService(() => getActive(active), vi.fn(), events as never);
+    const events = eventPublisher();
+    const service = new SessionCommandService(() => getActive(active), vi.fn(), events);
 
     await expect(service.run("s1", "/compact focus on tests")).resolves.toEqual({ type: "done", message: "Compaction started…" });
     await vi.waitFor(() => {
@@ -104,7 +112,7 @@ describe("SessionCommandService", () => {
         { entryId: "newest", text: "newest message" },
       ]),
     });
-    const service = new SessionCommandService(() => getActive(active), vi.fn(), { publish: vi.fn() } as never);
+    const service = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
 
     const result = await service.run("s1", "/fork");
 
@@ -117,7 +125,7 @@ describe("SessionCommandService", () => {
 
   it("rejects fork and clone while the session has active work", async () => {
     const active = activeSession({ isStreaming: true });
-    const service = new SessionCommandService(() => getActive(active), vi.fn(), { publish: vi.fn() } as never);
+    const service = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
 
     await expect(service.run("s1", "/fork")).resolves.toEqual({
       type: "unsupported",
@@ -132,11 +140,11 @@ describe("SessionCommandService", () => {
 
   it("rejects fork responses if the session becomes active after choosing fork", async () => {
     const active = activeSession();
-    const service = new SessionCommandService(() => getActive(active), vi.fn(), { publish: vi.fn() } as never);
+    const service = new SessionCommandService(() => getActive(active), vi.fn(), eventPublisher());
 
     const result = await service.run("s1", "/fork");
     if (result.type !== "select") throw new Error("Expected select result");
-    (active.runtime.session as Record<string, unknown>)["isStreaming"] = true;
+    active.runtime.session.isStreaming = true;
 
     await expect(service.respond("s1", result.requestId, "m1")).resolves.toEqual({
       type: "unsupported",
