@@ -111,17 +111,18 @@ export class ChatView extends LitElement {
   }
 
   override render() {
+    const groups = this.groupedMessages();
     return html`
       <div class="chat-wrap">
         ${this.renderHistoryIndicator()}
         <div class="chat" @scroll=${() => { this.onScroll(); }} @wheel=${(event: WheelEvent) => { this.onWheel(event); }} @touchstart=${(event: TouchEvent) => { this.onTouchStart(event); }} @touchmove=${(event: TouchEvent) => { this.onTouchMove(event); }}>
           ${this.renderHistoryBoundary()}
           ${repeat(
-            this.groupedMessages(),
+            groups,
             (group) => group.kind === "message" ? this.messageAnchorKey(group.index) : this.groupAnchorKey(group.endIndex),
-            (group) => group.kind === "message"
+            (group, index) => group.kind === "message"
               ? this.renderMessage(group.message, group.index)
-              : this.renderMessageGroup(group.messages, group.startIndex, group.endIndex),
+              : this.renderMessageGroup(group.messages, group.startIndex, group.endIndex, this.isLiveTailGroup(groups, index)),
           )}
           ${this.renderQueuedMessages()}
           ${this.renderSessionActivity()}
@@ -137,6 +138,17 @@ export class ChatView extends LitElement {
     this.groupedMessagesStart = this.messageStart;
     this.groupedMessagesCache = groupChatMessages(this.messages, this.messageStart);
     return this.groupedMessagesCache;
+  }
+
+  private isLiveTailGroup(groups: ChatGroup[], index: number): boolean {
+    return index === groups.length - 1 && this.isSessionLive();
+  }
+
+  private isSessionLive(): boolean {
+    return this.status?.isStreaming === true
+      || this.status?.isCompacting === true
+      || this.status?.isBashRunning === true
+      || this.activity?.phase === "active";
   }
 
   private renderActivityDock() {
@@ -259,13 +271,14 @@ export class ChatView extends LitElement {
     `;
   }
 
-  private renderMessageGroup(messages: ChatLine[], startIndex: number, endIndex: number) {
+  private renderMessageGroup(messages: ChatLine[], startIndex: number, endIndex: number, autoOpen: boolean) {
     const key = this.groupKey(endIndex);
+    const open = autoOpen || this.openGroupKeys.has(key);
     return html`
       ${this.renderScrollMarker(this.groupScrollMarkerId(endIndex))}
-      <details class="msg event-group" data-index=${startIndex} data-anchor-key=${this.groupAnchorKey(endIndex)} ?open=${this.openGroupKeys.has(key)} @toggle=${(event: Event) => { this.onGroupToggle(key, event); }}>
+      <details class=${autoOpen ? "msg event-group live" : "msg event-group"} data-index=${startIndex} data-anchor-key=${this.groupAnchorKey(endIndex)} ?open=${open} @toggle=${(event: Event) => { this.onGroupToggle(key, event, autoOpen); }}>
         <summary>
-          <b class="label">events</b>
+          <b class="label">${autoOpen ? "live events" : "events"}</b>
           <span>${summarizeChatGroup(messages)}</span>
         </summary>
         <div class="group-body">
@@ -410,12 +423,15 @@ export class ChatView extends LitElement {
     return null;
   }
 
-  private onGroupToggle(key: string, event: Event) {
+  private onGroupToggle(key: string, event: Event, autoOpen: boolean) {
     const details = event.currentTarget;
     if (!(details instanceof HTMLDetailsElement)) return;
+    if (autoOpen && details.open) return;
     const openGroupKeys = new Set(this.openGroupKeys);
+    const wasOpen = openGroupKeys.has(key);
     if (details.open) openGroupKeys.add(key);
     else openGroupKeys.delete(key);
+    if (openGroupKeys.has(key) === wasOpen) return;
     this.openGroupKeys = openGroupKeys;
     this.saveOpenGroupKeys();
   }
