@@ -13,8 +13,8 @@ import { SessionController } from "../controllers/sessionController";
 import { WorkspaceController } from "../controllers/workspaceController";
 import { KeyboardShortcutDispatcher } from "../keyboardShortcuts";
 import { RealtimeSocket } from "../sessionSocket";
-import type { QualifiedContributionId, QualifiedWorkspacePanelContribution, PluginRuntimeContext, WorkspacePanelContext } from "../plugins/types";
-import { DEFAULT_THEME_ID, applyPiWebTheme, readStoredThemeId } from "../theme";
+import type { QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspacePanelContribution, PluginRuntimeContext, WorkspacePanelContext } from "../plugins/types";
+import { CLASSIC_THEME_ID, DEFAULT_THEME_PREFERENCE, applyPiWebTheme, findThemePairForTheme, readStoredThemePreference, resolveThemePreference, writeStoredThemePreference, type ThemePreference, type ThemePreferenceResolution } from "../theme";
 import { corePlugin } from "../plugins/core";
 import { themePackPlugin } from "../plugins/themes";
 import { loadExternalPlugins } from "../plugins/external";
@@ -39,6 +39,9 @@ import { appStyles } from "./shared";
 type NavigationSection = "projects" | "workspaces" | "sessions";
 
 const PI_WEB_STATUS_REFRESH_MS = 15 * 60 * 1000;
+const THEME_AUTO_ON_VALUE = "auto:on";
+const THEME_AUTO_OFF_VALUE = "auto:off";
+const THEME_OPTION_PREFIX = "theme:";
 
 @customElement("pi-web-app")
 export class PiWebApp extends LitElement {
@@ -87,6 +90,7 @@ export class PiWebApp extends LitElement {
   private readonly realtime = new RealtimeSocket();
   private readonly activeTerminalIds = new Set<string>();
   private readonly mobileNavigationMedia = typeof window !== "undefined" && "matchMedia" in window ? window.matchMedia("(max-width: 760px)") : undefined;
+  private readonly systemLightThemeMedia = typeof window !== "undefined" && "matchMedia" in window ? window.matchMedia("(prefers-color-scheme: light)") : undefined;
   private observedContextItems: HTMLElement | undefined;
   private observedMobileTabs: HTMLElement | undefined;
   private contextItemsResizeObserver: ResizeObserver | undefined;
@@ -94,8 +98,8 @@ export class PiWebApp extends LitElement {
   private terminalAutoStartWorkspaceId: string | undefined;
   private piWebStatusTimer: number | undefined;
   private readonly plugins = createPluginRegistry();
-  private preferredThemeId: QualifiedContributionId = readStoredThemeId() ?? DEFAULT_THEME_ID;
-  @state() private activeThemeId: QualifiedContributionId = DEFAULT_THEME_ID;
+  private themePreference: ThemePreference = readStoredThemePreference() ?? DEFAULT_THEME_PREFERENCE;
+  @state() private activeThemeId: QualifiedContributionId = CLASSIC_THEME_ID;
   @state() private isMobileNavigationLayout = this.mobileNavigationMedia?.matches ?? false;
   @state() private expandedMobileNavigationSection: NavigationSection | "none" | undefined;
   @state() private contextCanScrollLeft = false;
@@ -120,6 +124,9 @@ export class PiWebApp extends LitElement {
     this.updateContextScrollState();
     this.updateMobileTabsScrollState();
   };
+  private readonly onSystemLightThemeChange = () => {
+    if (this.themePreference.auto) this.applyPreferredTheme(false);
+  };
   private readonly onContextScroll = () => {
     this.updateContextScrollState();
   };
@@ -140,6 +147,7 @@ export class PiWebApp extends LitElement {
     document.addEventListener("visibilitychange", this.onVisibilityChange);
     window.addEventListener("keydown", this.onKeyDown);
     this.mobileNavigationMedia?.addEventListener("change", this.onMobileNavigationMediaChange);
+    this.systemLightThemeMedia?.addEventListener("change", this.onSystemLightThemeChange);
     this.applyPreferredTheme(false);
     this.connectRealtime();
     this.piWebStatusTimer = window.setInterval(() => { void this.refreshPiWebStatus(); }, PI_WEB_STATUS_REFRESH_MS);
@@ -155,6 +163,7 @@ export class PiWebApp extends LitElement {
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
     window.removeEventListener("keydown", this.onKeyDown);
     this.mobileNavigationMedia?.removeEventListener("change", this.onMobileNavigationMediaChange);
+    this.systemLightThemeMedia?.removeEventListener("change", this.onSystemLightThemeChange);
     this.keyboard.reset();
     this.auth.dispose();
     this.sessions.dispose();
@@ -474,7 +483,14 @@ export class PiWebApp extends LitElement {
 
   private async loadExternalPlugins(): Promise<void> {
     try {
-      for (const registration of await loadExternalPlugins()) this.plugins.register(registration);
+      const registrations = await loadExternalPlugins();
+      for (const registration of registrations) {
+        try {
+          this.plugins.register(registration);
+        } catch (error) {
+          console.warn(`Failed to register Pi Web plugin ${registration.id}`, error);
+        }
+      }
       this.applyPreferredTheme(false);
       this.requestUpdate();
     } catch (error) {
@@ -533,36 +549,91 @@ export class PiWebApp extends LitElement {
 
   private openThemeDialog() {
     const themes = this.plugins.getThemes();
+    const resolution = this.resolveCurrentThemePreference(themes);
+    const selectedThemeId = resolution.selectedTheme?.id;
+    const autoValue = this.themePreference.auto ? THEME_AUTO_OFF_VALUE : THEME_AUTO_ON_VALUE;
     this.setState({
       themeDialog: {
         title: "Select Theme",
-        selectedValue: this.activeThemeId,
-        options: themes.map((theme) => ({
-          value: theme.id,
-          label: `${theme.name}${theme.id === this.activeThemeId ? " ✓ current" : ""}`,
-          description: theme.description === undefined ? theme.colorScheme : `${theme.colorScheme} · ${theme.description}`,
-        })),
+        selectedValue: selectedThemeId === undefined ? autoValue : `${THEME_OPTION_PREFIX}${selectedThemeId}`,
+        options: [
+          {
+            value: autoValue,
+            label: `Auto ${this.themePreference.auto ? "✓ on" : "off"}`,
+            description: this.autoThemeDescription(resolution),
+          },
+          ...themes.map((theme) => ({
+            value: `${THEME_OPTION_PREFIX}${theme.id}`,
+            label: this.themeOptionLabel(theme, selectedThemeId),
+            description: this.themeOptionDescription(theme),
+          })),
+        ],
       },
     });
   }
 
   private pickTheme(value: string) {
-    const theme = this.plugins.getThemes().find((candidate) => candidate.id === value);
     this.setState({ themeDialog: undefined });
+    if (value === THEME_AUTO_ON_VALUE || value === THEME_AUTO_OFF_VALUE) {
+      const selectedThemeId = this.resolveCurrentThemePreference().selectedTheme?.id;
+      if (selectedThemeId === undefined) return;
+      this.themePreference = { themeId: selectedThemeId, auto: value === THEME_AUTO_ON_VALUE };
+      this.applyPreferredTheme(true);
+      return;
+    }
+    if (!value.startsWith(THEME_OPTION_PREFIX)) return;
+    const themeId = value.slice(THEME_OPTION_PREFIX.length);
+    const theme = this.plugins.getThemes().find((candidate) => candidate.id === themeId);
     if (theme === undefined) return;
-    this.preferredThemeId = theme.id;
-    this.activeThemeId = theme.id;
-    applyPiWebTheme(theme);
+    this.themePreference = { themeId: theme.id, auto: this.themePreference.auto };
+    this.applyPreferredTheme(true);
   }
 
   private applyPreferredTheme(persist: boolean): void {
-    const themes = this.plugins.getThemes();
-    const theme = themes.find((candidate) => candidate.id === this.preferredThemeId)
-      ?? themes.find((candidate) => candidate.id === DEFAULT_THEME_ID)
-      ?? themes[0];
+    const theme = this.resolveCurrentThemePreference().activeTheme;
     if (theme === undefined) return;
     this.activeThemeId = theme.id;
-    applyPiWebTheme(theme, { persist });
+    applyPiWebTheme(theme);
+    if (persist) writeStoredThemePreference(this.themePreference);
+  }
+
+  private resolveCurrentThemePreference(themes = this.plugins.getThemes()): ThemePreferenceResolution {
+    return resolveThemePreference({
+      themes,
+      themePairs: this.plugins.getThemePairs(),
+      preference: this.themePreference,
+      prefersLight: this.systemPrefersLight(),
+    });
+  }
+
+  private themePairForTheme(themeId: QualifiedContributionId): QualifiedThemePairContribution | undefined {
+    return findThemePairForTheme(this.plugins.getThemePairs(), themeId);
+  }
+
+  private systemPrefersLight(): boolean {
+    return this.systemLightThemeMedia?.matches ?? false;
+  }
+
+  private autoThemeDescription(resolution: ThemePreferenceResolution): string {
+    if (!this.themePreference.auto) return "Follow the system light/dark preference when the selected theme has a pair.";
+    if (resolution.selectedTheme === undefined) return "Follow the system light/dark preference when the selected theme has a pair.";
+    if (resolution.selectedThemePair === undefined) return "On, but the selected theme has no light/dark pair, so it will stay selected.";
+    return `On · ${resolution.selectedThemePair.name} follows the system ${this.systemPrefersLight() ? "light" : "dark"} preference.`;
+  }
+
+  private themeOptionLabel(theme: QualifiedThemeContribution, selectedThemeId: QualifiedContributionId | undefined): string {
+    const markers = [
+      ...(theme.id === selectedThemeId ? ["selected"] : []),
+      ...(theme.id === this.activeThemeId && theme.id !== selectedThemeId ? ["active"] : []),
+    ];
+    return markers.length === 0 ? theme.name : `${theme.name} ✓ ${markers.join(" · ")}`;
+  }
+
+  private themeOptionDescription(theme: QualifiedThemeContribution): string {
+    const parts: string[] = [theme.colorScheme];
+    if (this.themePairForTheme(theme.id) !== undefined) parts.push("auto pair");
+    if (theme.description !== undefined) parts.push(theme.description);
+    return parts.join(" · ");
   }
 
   private async openThinkingDialog() {

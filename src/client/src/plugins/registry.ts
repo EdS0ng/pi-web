@@ -1,7 +1,7 @@
 import { html } from "lit";
 import type { AppState } from "../appState";
 import type { Workspace } from "../api";
-import type { PiWebPluginRegistration, PluginAction, PluginRuntimeContext, QualifiedContributionId, QualifiedPluginAction, QualifiedThemeContribution, QualifiedWorkspaceLabelContribution, QualifiedWorkspacePanelContribution, ThemeContribution, WorkspaceLabelContribution, WorkspaceLabelItem, WorkspacePanelContribution } from "./types";
+import type { PiWebPluginRegistration, PluginAction, PluginRuntimeContext, QualifiedContributionId, QualifiedPluginAction, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspaceLabelContribution, QualifiedWorkspacePanelContribution, ThemeContribution, ThemePairContribution, WorkspaceLabelContribution, WorkspaceLabelItem, WorkspacePanelContribution } from "./types";
 
 const idPattern = /^[a-z][a-z0-9.-]*$/u;
 const localIdPattern = /^[a-z][a-z0-9.-]*$/u;
@@ -17,6 +17,7 @@ export class PluginRegistry {
   private readonly workspacePanels: QualifiedWorkspacePanelContribution[] = [];
   private readonly workspaceLabels: QualifiedWorkspaceLabelContribution[] = [];
   private readonly themes: QualifiedThemeContribution[] = [];
+  private readonly themePairs: QualifiedThemePairContribution[] = [];
   private readonly pluginIds = new Set<string>();
   private readonly contributionIds = new Set<QualifiedContributionId>();
 
@@ -34,6 +35,7 @@ export class PluginRegistry {
     for (const panel of contributions.workspacePanels ?? []) this.workspacePanels.push(this.qualifyWorkspacePanel(id, panel));
     for (const contribution of contributions.workspaceLabels ?? []) this.workspaceLabels.push(this.qualifyWorkspaceLabelContribution(id, contribution));
     for (const theme of contributions.themes ?? []) this.themes.push(this.qualifyTheme(id, theme));
+    for (const pair of contributions.themePairs ?? []) this.themePairs.push(this.qualifyThemePair(id, pair));
   }
 
   getActions(context: PluginRuntimeContext): QualifiedPluginAction[] {
@@ -60,6 +62,10 @@ export class PluginRegistry {
 
   getThemes(): QualifiedThemeContribution[] {
     return [...this.themes].sort((left, right) => (left.order ?? 1000) - (right.order ?? 1000) || left.name.localeCompare(right.name));
+  }
+
+  getThemePairs(): QualifiedThemePairContribution[] {
+    return [...this.themePairs].sort((left, right) => (left.order ?? 1000) - (right.order ?? 1000) || left.name.localeCompare(right.name));
   }
 
   getWorkspaceLabelItems(state: AppState, workspace: Workspace): WorkspaceLabelItem[] {
@@ -92,12 +98,29 @@ export class PluginRegistry {
     return { ...theme, id, pluginId, localId: theme.id };
   }
 
+  private qualifyThemePair(pluginId: string, pair: ThemePairContribution): QualifiedThemePairContribution {
+    const id = this.qualify(pluginId, pair.id);
+    return {
+      ...pair,
+      id,
+      pluginId,
+      localId: pair.id,
+      light: this.qualifyReference(pluginId, pair.light),
+      dark: this.qualifyReference(pluginId, pair.dark),
+    };
+  }
+
   private qualify(pluginId: string, localId: string): QualifiedContributionId {
     this.validateLocalId(localId);
     const qualified: QualifiedContributionId = `${pluginId}:${localId}`;
     if (this.contributionIds.has(qualified)) throw new Error(`Duplicate contribution id: ${qualified}`);
     this.contributionIds.add(qualified);
     return qualified;
+  }
+
+  private qualifyReference(pluginId: string, localId: string): QualifiedContributionId {
+    this.validateLocalId(localId);
+    return `${pluginId}:${localId}`;
   }
 
   private validatePluginId(pluginId: string): void {

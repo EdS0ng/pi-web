@@ -34,6 +34,7 @@ export interface PluginContributions {
   workspacePanels?: WorkspacePanelContribution[];
   workspaceLabels?: WorkspaceLabelContribution[];
   themes?: ThemeContribution[];
+  themePairs?: ThemePairContribution[];
 }
 
 export interface PluginRuntimeContext {
@@ -193,10 +194,27 @@ export interface ThemeContribution {
   tokens: ThemeTokens;
 }
 
+export interface ThemePairContribution {
+  id: LocalContributionId;
+  name: string;
+  description?: string;
+  order?: number;
+  light: LocalContributionId;
+  dark: LocalContributionId;
+}
+
 export interface QualifiedThemeContribution extends ThemeContribution {
   id: QualifiedContributionId;
   pluginId: PluginId;
   localId: LocalContributionId;
+}
+
+export interface QualifiedThemePairContribution extends Omit<ThemePairContribution, "id" | "light" | "dark"> {
+  id: QualifiedContributionId;
+  pluginId: PluginId;
+  localId: LocalContributionId;
+  light: QualifiedContributionId;
+  dark: QualifiedContributionId;
 }
 
 export interface QualifiedWorkspaceLabelContribution extends WorkspaceLabelContribution {

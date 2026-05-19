@@ -88,9 +88,12 @@ describe("PluginRegistry", () => {
     registry.register({ id: "themes", plugin: themePackPlugin });
 
     expect(registry.getThemes().map((theme) => ({ id: theme.id, colorScheme: theme.colorScheme }))).toEqual([
-      { id: "themes:current", colorScheme: "dark" },
-      { id: "themes:docs-dark", colorScheme: "dark" },
-      { id: "themes:docs-light", colorScheme: "light" },
+      { id: "themes:pi-web-dark", colorScheme: "dark" },
+      { id: "themes:pi-web-light", colorScheme: "light" },
+      { id: "themes:classic", colorScheme: "dark" },
+    ]);
+    expect(registry.getThemePairs().map((pair) => ({ id: pair.id, light: pair.light, dark: pair.dark }))).toEqual([
+      { id: "themes:pi-web", light: "themes:pi-web-light", dark: "themes:pi-web-dark" },
     ]);
   });
 
@@ -107,6 +110,9 @@ describe("PluginRegistry", () => {
               { id: "last", name: "Last", order: 20, colorScheme: "dark", tokens: testThemeTokens() },
               { id: "first", name: "First", order: 10, colorScheme: "light", tokens: testThemeTokens() },
             ],
+            themePairs: [
+              { id: "pair", name: "Pair", light: "first", dark: "last" },
+            ],
           },
         }),
       },
@@ -115,6 +121,9 @@ describe("PluginRegistry", () => {
     expect(registry.getThemes().map((theme) => ({ id: theme.id, pluginId: theme.pluginId, localId: theme.localId, name: theme.name }))).toEqual([
       { id: "example:first", pluginId: "example", localId: "first", name: "First" },
       { id: "example:last", pluginId: "example", localId: "last", name: "Last" },
+    ]);
+    expect(registry.getThemePairs().map((pair) => ({ id: pair.id, pluginId: pair.pluginId, localId: pair.localId, light: pair.light, dark: pair.dark }))).toEqual([
+      { id: "example:pair", pluginId: "example", localId: "pair", light: "example:first", dark: "example:last" },
     ]);
   });
 

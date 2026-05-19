@@ -1,6 +1,6 @@
 import type { PiWebPlugin, ThemeTokens } from "../types";
 
-const currentTokens = {
+const classicTokens = {
   "--pi-bg": "#0d1117",
   "--pi-surface": "#161b22",
   "--pi-surface-hover": "#21262d",
@@ -38,7 +38,7 @@ const currentTokens = {
   "--pi-terminal-selection": "#264f78",
 } satisfies ThemeTokens;
 
-const docsDarkTokens = {
+const piWebDarkTokens = {
   "--pi-bg": "#070912",
   "--pi-surface": "#101527",
   "--pi-surface-hover": "#151b31",
@@ -76,7 +76,7 @@ const docsDarkTokens = {
   "--pi-terminal-selection": "#3d4a78",
 } satisfies ThemeTokens;
 
-const docsLightTokens = {
+const piWebLightTokens = {
   "--pi-bg": "#f7f1e6",
   "--pi-surface": "#fff9ee",
   "--pi-surface-hover": "#f0e6d6",
@@ -121,28 +121,38 @@ export const themePackPlugin: PiWebPlugin = {
     contributions: {
       themes: [
         {
-          id: "current",
-          name: "Pi Web Current",
-          description: "The original Pi Web dark palette.",
+          id: "pi-web-dark",
+          name: "Pi Web Dark",
+          description: "Dark Pi Web palette.",
           order: 10,
           colorScheme: "dark",
-          tokens: currentTokens,
+          tokens: piWebDarkTokens,
         },
         {
-          id: "docs-dark",
-          name: "Docs Dark",
-          description: "Dark theme based on the Pi Web docs site.",
+          id: "pi-web-light",
+          name: "Pi Web Light",
+          description: "Light Pi Web palette.",
           order: 20,
-          colorScheme: "dark",
-          tokens: docsDarkTokens,
+          colorScheme: "light",
+          tokens: piWebLightTokens,
         },
         {
-          id: "docs-light",
-          name: "Docs Light",
-          description: "Light theme based on the Pi Web docs site.",
+          id: "classic",
+          name: "Pi Web Classic",
+          description: "The original Pi Web dark palette.",
           order: 30,
-          colorScheme: "light",
-          tokens: docsLightTokens,
+          colorScheme: "dark",
+          tokens: classicTokens,
+        },
+      ],
+      themePairs: [
+        {
+          id: "pi-web",
+          name: "Pi Web",
+          description: "Follow the system light/dark preference with Pi Web themes.",
+          order: 10,
+          light: "pi-web-light",
+          dark: "pi-web-dark",
         },
       ],
     },
