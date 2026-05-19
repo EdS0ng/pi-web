@@ -1,5 +1,22 @@
 # @jmfederico/pi-web
 
+## 1.202605.9
+
+### Patch Changes
+
+- 9c028a7: Move archived session files out of active Pi session directories so normal session lists no longer scan archived histories.
+- 1d8dba9: Fix the homepage Keep control card icon so it renders clearly across browsers.
+- c5dc655: Replace the chat history banner with a count-based conversation position meter that shows approximate message position without extra requests.
+- 6f7713f: Contain long edit diff lines inside the diff viewer so they scroll horizontally within the tool card instead of widening the chat transcript.
+- ee6f60f: Improve Pi Web tool cards for edit operations with live preview updates, paired call/result display, and rendered diffs that match the TUI more closely.
+- 545499a: Add friendlier rotating in-progress response notices when opening a chat mid-reply.
+- 71ce2fb: Make workspace navigation bars horizontally scrollable on desktop and mobile, with side shadows showing when more items are available.
+- 547b6e6: Expand the live trailing events group while a session is active, then collapse it again once readable conversation output appears.
+- e89441f: Make the mobile navigation panel sections collapsible so projects, workspaces, and sessions can each use more screen space.
+- babb802: Add a beta-labeled Pi Web status panel with update instructions tailored to global npm, Pi package, or local installs. The panel appears for update/restart messages and stays visible for local or unknown installs, while keeping the bundled Info plugin as the minimal documented plugin example.
+- 6f7713f: Keep chat bubble and event group headers sticky while scrolling so long messages remain easier to orient within the transcript.
+- b51d56c: Add theme tokens, a theme picker, and built-in current/docs-inspired themes for the Pi Web UI.
+
 ## 1.202605.8
 
 ### Patch Changes
