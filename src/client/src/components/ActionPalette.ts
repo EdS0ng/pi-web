@@ -8,7 +8,7 @@ import { actionPaletteStyles } from "./shared";
 @customElement("action-palette")
 export class ActionPalette extends LitElement {
   @property({ attribute: false }) actions: AppAction[] = [];
-  @property({ attribute: false }) onRun?: (actionId: string) => void;
+  @property({ attribute: false }) onRun?: (action: AppAction) => void;
   @property({ attribute: false }) onCancel?: () => void;
   @query("input") private input?: HTMLInputElement;
   @state() private queryText = "";
@@ -89,7 +89,7 @@ export class ActionPalette extends LitElement {
   }
 
   private run(action: AppAction) {
-    this.onRun?.(action.id);
+    this.onRun?.(action);
   }
 
   static override styles = actionPaletteStyles;

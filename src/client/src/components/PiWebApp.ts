@@ -20,7 +20,7 @@ import { themePackPlugin } from "../plugins/themes";
 import { loadExternalPlugins } from "../plugins/external";
 import { PluginRegistry } from "../plugins/registry";
 import { queryNamespace, readNamespacedString } from "../namespacedQueryArgs";
-import { readRoute, writeRoute } from "../route";
+import { readRoute, writeRoute, type AppRoute } from "../route";
 import "./ProjectList";
 import "./WorkspaceList";
 import "./SessionList";
@@ -229,14 +229,31 @@ export class PiWebApp extends LitElement {
     const selectedDiffPath = readNamespacedString(queryNamespace("core:workspace.git"), "diff");
     this.setState({ workspaceTool: route.tool ?? this.state.workspaceTool, mainView: route.view ?? this.defaultRouteView(), selectedFilePath, selectedDiffPath });
     if (route.projectId === undefined || route.projectId === "") return;
+    if (this.routeMatchesCurrentSelection(route)) {
+      await this.refreshRestoredWorkspaceTool(route.tool, selectedFilePath);
+      this.git.updatePolling();
+      return;
+    }
     const project = this.state.projects.find((p) => p.id === route.projectId);
     if (!project) return;
     await this.workspaces.selectProject(project, { workspaceId: route.workspaceId, sessionId: route.sessionId, updateUrl });
     this.setState({ selectedFilePath, selectedDiffPath });
-    if (route.tool === "core:workspace.files") await this.files.refreshFiles();
-    if (route.tool === "core:workspace.files" && selectedFilePath !== undefined) await this.files.restoreFile(selectedFilePath);
-    if (route.tool === "core:workspace.git") await this.git.refreshGit();
+    await this.refreshRestoredWorkspaceTool(route.tool, selectedFilePath);
     this.git.updatePolling();
+  }
+
+  private routeMatchesCurrentSelection(route: AppRoute): boolean {
+    return route.workspaceId !== undefined
+      && route.workspaceId !== ""
+      && this.state.selectedProject?.id === route.projectId
+      && this.state.selectedWorkspace?.id === route.workspaceId
+      && this.state.selectedSession?.id === route.sessionId;
+  }
+
+  private async refreshRestoredWorkspaceTool(tool: QualifiedContributionId | undefined, selectedFilePath: string | undefined): Promise<void> {
+    if (tool === "core:workspace.files") await this.files.refreshFiles();
+    if (tool === "core:workspace.files" && selectedFilePath !== undefined) await this.files.restoreFile(selectedFilePath);
+    if (tool === "core:workspace.git") await this.git.refreshGit();
   }
 
   private async withChatScrollTransition(action: () => Promise<void>) {
@@ -518,9 +535,14 @@ export class PiWebApp extends LitElement {
     };
   }
 
-  private runAction(actionId: string) {
-    const action = this.getActions().find((candidate) => candidate.id === actionId && candidate.enabled !== false);
-    if (action !== undefined) void action.run();
+  private runAction(action: AppAction): void {
+    void Promise.resolve()
+      .then(() => action.run())
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`Action failed: ${action.id}`, error);
+        this.setState({ error: `Action failed: ${message}` });
+      });
   }
 
   private async openModelDialog() {
@@ -778,7 +800,7 @@ export class PiWebApp extends LitElement {
           ` : html`<div class="empty">Select or start a session.</div>`}
         </main>
         ${this.renderWorkspacePanel()}
-        ${state.actionPaletteOpen ? html`<action-palette .actions=${this.getActions()} .onRun=${(actionId: string) => { this.setState({ actionPaletteOpen: false }); this.runAction(actionId); }} .onCancel=${() => { this.setState({ actionPaletteOpen: false }); }}></action-palette>` : null}
+        ${state.actionPaletteOpen ? html`<action-palette .actions=${this.getActions()} .onRun=${(action: AppAction) => { this.setState({ actionPaletteOpen: false }); this.runAction(action); }} .onCancel=${() => { this.setState({ actionPaletteOpen: false }); }}></action-palette>` : null}
         ${state.projectDialogOpen ? html`<project-dialog .onSubmit=${(path: string, create: boolean) => this.projects.addProject(path, create)} .onCancel=${() => { this.setState({ projectDialogOpen: false }); }}></project-dialog>` : null}
         ${state.themeDialog !== undefined ? html`<command-picker title=${state.themeDialog.title} .options=${state.themeDialog.options} .selectedValue=${state.themeDialog.selectedValue} .onPick=${(value: string) => { this.pickTheme(value); }} .onCancel=${() => { this.setState({ themeDialog: undefined }); }}></command-picker>` : null}
       </div>
