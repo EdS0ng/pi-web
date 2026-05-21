@@ -1,5 +1,26 @@
 # @jmfederico/pi-web
 
+## 1.202605.11
+
+### Patch Changes
+
+- 1f06b25: Make the Pi Web light/dark themes the default automatic theme pair and keep Classic as the fallback for missing theme selections.
+- 619840a: Clear stale workspace activity indicators when sessions become idle or all remaining sessions are archived.
+- 9d4a017: Deep-link terminal selection so action-created terminals open directly and reload back to the same terminal.
+- 698a899: Load and watch first-party workspace plugin packages from the single Pi Web development command without requiring local symlinks.
+- fb7903f: Document and harden separate Pi Web plugin package development, including the Actions plugin refresh flow and public terminal navigation helper.
+- 32182a5: Allow Pi package installs to create systemd services from bundled Pi Web entrypoints when `pi-web-server` and `pi-web-sessiond` are not on the service shell PATH.
+- 8fbdd6e: Prevent resize observers from attaching to missing UI elements during panel rerenders.
+- 1f06b25: Keep loading other external plugins when one plugin fails during registration.
+- 2631a63: Add persistent project, workspace, and session context in the web UI so mobile users keep their location visible while navigating between panels and chat.
+- 3da2fcf: Add in-place overflow lenses for workspace rows so truncated workspace labels and plugin links can be read or clicked, and cap long project and session names to two lines.
+- 894c4d0: Avoid automatically reselecting archived-only sessions unless an archived session was explicitly selected, and let closing the archived section clear archived session selection.
+- cf1b0ed: Replace the workspace hover lens with a workspace actions/details menu so metadata remains accessible without blocking list scrolling or shifting rows.
+- ea5d863: Preserve chat scroll positions more reliably across session and workspace changes, and keep live event groups collapsed when users close them during streaming.
+- 0a086c9: Keep action-palette plugin actions responsive when they change workspace tools or routes.
+- 3cce6d2: Rework chat scroll restoration around explicit bottom and anchor positions so session navigation and streaming updates keep the user's reading position stable.
+- e5bc87b: Add a Go to Terminal action with a keyboard shortcut and clarify that plugin shortcuts are default keybindings attached to actions.
+
 ## 1.202605.10
 
 ### Patch Changes
