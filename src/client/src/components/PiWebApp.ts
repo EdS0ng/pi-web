@@ -1200,7 +1200,7 @@ export class PiWebApp extends LitElement {
         <aside>${this.isMobileNavigationLayout ? null : this.renderNavigationPanel(false)}</aside>
         <main class=${state.mainView === "chat" ? "chat-view" : state.mainView === "navigation" ? "navigation-view" : "workspace-view"}>
           ${this.renderContextBar()}
-          ${state.workspacePanelCollapsed ? html`<div class="expand-panel-strip"><button class="expand-workspace-panel-button" title="Expand workspace panel" aria-label="Expand workspace panel" @click=${() => { this.toggleWorkspacePanelCollapse(); }}><svg class="expand-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 18l-6-6 6-6"/></svg></button></div>` : null}
+          ${state.workspacePanelCollapsed ? html`<div class="expand-panel-strip"><button class="expand-workspace-panel-button" title="Toggle Panel" aria-label="Toggle Panel" @click=${() => { this.toggleWorkspacePanelCollapse(); }}><svg class="expand-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 18l-6-6 6-6"/></svg></button></div>` : null}
           <div class=${this.mobileTabsFrameClass()}>
             <div class="mobile-tabs" @scroll=${this.onMobileTabsScroll}>
               <button class=${state.mainView === "navigation" ? "mobile-navigation-tab selected" : "mobile-navigation-tab"} @click=${() => { this.selectMainView("navigation"); }}>Sessions</button>

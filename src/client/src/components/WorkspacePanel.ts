@@ -71,7 +71,7 @@ export class WorkspacePanel extends LitElement {
                 ${visiblePanels.map((panel) => html`
                   <button class=${selectedPanel?.id === panel.id ? "selected" : ""} @click=${() => { this.onSelectTool(panel.id); }}>${this.renderPanelTitle(panel, context)}</button>
                 `)}
-                <button class="collapse-button" title="Collapse panel" aria-label="Collapse panel" @click=${() => { this.onToggleCollapse(); }}>${this.renderCollapseIcon()}</button>
+                <button class="collapse-button" title="Toggle Panel" aria-label="Toggle Panel" @click=${() => { this.onToggleCollapse(); }}>${this.renderCollapseIcon()}</button>
               </div>
             `}
             <small>${renderWorkspaceLabel(workspace.label, this.workspaceLabelItems, workspace.path)}</small>
