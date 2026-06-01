@@ -112,7 +112,7 @@ export class AppRefreshControl extends LitElement {
   };
 
   private openMenu(target: EventTarget | null): void {
-    this.menuStyle = actionMenuPanelStyle(target);
+    this.menuStyle = actionMenuPanelStyle(target, { constrainTo: "viewport" });
     this.menuOpen = true;
   }
 

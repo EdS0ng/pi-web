@@ -8,10 +8,14 @@ interface ActionMenuRect {
   left: number;
 }
 
-export function actionMenuPanelStyle(target: EventTarget | null): string {
+interface ActionMenuPanelStyleOptions {
+  constrainTo?: "host" | "viewport";
+}
+
+export function actionMenuPanelStyle(target: EventTarget | null, options: ActionMenuPanelStyleOptions = {}): string {
   if (typeof HTMLElement === "undefined" || typeof window === "undefined" || !(target instanceof HTMLElement)) return "";
   const trigger = target.getBoundingClientRect();
-  const bounds = actionMenuBounds(target);
+  const bounds = options.constrainTo === "viewport" ? viewportBounds() : actionMenuBounds(target);
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
   const leftBound = Math.max(0, bounds.left);
@@ -35,6 +39,10 @@ export function actionMenuPanelStyle(target: EventTarget | null): string {
 function actionMenuBounds(target: HTMLElement): ActionMenuRect {
   const root = target.getRootNode();
   if (typeof ShadowRoot !== "undefined" && root instanceof ShadowRoot && root.host instanceof HTMLElement) return root.host.getBoundingClientRect();
+  return viewportBounds();
+}
+
+function viewportBounds(): ActionMenuRect {
   return { top: 0, right: window.innerWidth, bottom: window.innerHeight, left: 0 };
 }
 
