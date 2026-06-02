@@ -194,11 +194,19 @@ async function moveFile(source: string, destination: string): Promise<void> {
  * kernel-level copy), but archive operations move small JSONL files so
  * the impact is negligible.
  *
- * Background: https://github.com/jmfederico/pi-web/issues/... (filed
- * alongside this PR).
+ * Write to a same-directory temp file first so a failed copy cannot leave a
+ * partial file at the final archive path. A successful same-directory rename is
+ * atomic and avoids the `copy_file_range(2)` path entirely.
  */
 async function streamCopyFile(source: string, destination: string): Promise<void> {
-  await pipeline(createReadStream(source), createWriteStream(destination));
+  const tempPath = join(dirname(destination), `.${basename(destination)}.${String(process.pid)}.${Date.now().toString()}.${randomUUID()}.tmp`);
+  try {
+    await pipeline(createReadStream(source), createWriteStream(tempPath, { flags: "wx" }));
+    await rename(tempPath, destination);
+  } catch (error: unknown) {
+    await unlink(tempPath).catch(() => undefined);
+    throw error;
+  }
 }
 
 async function pathExists(path: string): Promise<boolean> {
