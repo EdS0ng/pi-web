@@ -63,6 +63,14 @@ describe("cached new sessions", () => {
     expect(loadCachedNewSessions(storage).map((session) => session.id)).toEqual(["other"]);
   });
 
+  it("does not cache server-confirmed persisted sessions", () => {
+    const storage = new MemoryStorage();
+
+    rememberCachedNewSession({ ...baseSession, persistence: "persisted" }, storage);
+
+    expect(loadCachedNewSessions(storage)).toEqual([]);
+  });
+
   it("forgets cached sessions", () => {
     const storage = new MemoryStorage();
     rememberCachedNewSession(baseSession, storage);

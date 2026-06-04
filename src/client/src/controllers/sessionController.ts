@@ -1,6 +1,7 @@
 import { api as defaultApi, type CommandResult, type SessionActivity, type SessionInfo, type SessionStatus, type ThinkingLevel } from "../api";
 import type { AppState } from "../appState";
 import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInfo, rememberCachedNewSession, stripCachedNewSessionMarker } from "../cachedNewSessions";
+import { isEphemeralSession } from "../sessionActions";
 import { textMessage } from "../chatMessages";
 import { clearDraft, moveDraft, saveDraft } from "../promptDraftStorage";
 import { ChatTranscriptStore } from "../chatTranscriptStore";
@@ -171,7 +172,6 @@ export class SessionController {
     if (!session || session.archived === true) return;
     try {
       await this.api.prompt(session.id, text, streamingBehavior);
-      this.markCachedNewSessionPersisted(session);
     } catch (error) {
       this.setState({ error: String(error) });
     }
@@ -183,7 +183,6 @@ export class SessionController {
     this.setState({ messages: [...this.getState().messages, textMessage("user", text)] });
     try {
       await this.api.shell(session.id, text);
-      this.markCachedNewSessionPersisted(session);
     } catch (error) {
       this.setState({ messages: [...this.getState().messages, textMessage("system", String(error))], error: String(error) });
     }
@@ -195,7 +194,6 @@ export class SessionController {
     this.setState({ messages: [...this.getState().messages, textMessage("user", text)] });
     try {
       this.applyCommandResult(await this.api.runCommand(session.id, text));
-      this.markCachedNewSessionPersisted(session);
     } catch (error) {
       this.setState({ messages: [...this.getState().messages, textMessage("system", String(error))], error: String(error) });
     }
@@ -258,11 +256,13 @@ export class SessionController {
   }
 
   async deleteCachedNewSession(session = this.getState().selectedSession) {
-    if (!isCachedNewSessionInfo(session)) return;
+    if (session === undefined) return;
+    const status = this.getState().sessionStatuses[session.id];
+    if (!isEphemeralSession(session, status)) return;
     void this.api.stop(session.id).catch(() => {
-      // Best-effort cleanup for browser-cached sessions that may not exist server-side anymore.
+      // Best-effort cleanup for browser-cached or ephemeral sessions that may not exist server-side anymore.
     });
-    forgetCachedNewSession(session.id);
+    if (isCachedNewSessionInfo(session)) forgetCachedNewSession(session.id);
     clearDraft(session.id);
     const sessions = this.getState().sessions.filter((candidate) => candidate.id !== session.id);
     this.setState({ sessions });
@@ -416,11 +416,6 @@ export class SessionController {
     }
   }
 
-  private markCachedNewSessionPersisted(session: SessionInfo): void {
-    if (!isCachedNewSessionInfo(session)) return;
-    const latest = this.getState().sessions.find((candidate) => candidate.id === session.id) ?? session;
-    this.replaceSession(stripCachedNewSessionMarker(latest));
-  }
 
   private applyCommandResult(result: CommandResult) {
     if (result.type === "select") {
@@ -447,10 +442,11 @@ export class SessionController {
 
   private applyStatus(status: SessionStatus) {
     const state = this.getState();
+    if (status.persistence === "persisted") forgetCachedNewSession(status.sessionId);
     const clearsStaleActivity = state.sessionActivities[status.sessionId]?.phase === "active" && !isSessionActive(status);
     this.setState({
       sessionStatuses: { ...state.sessionStatuses, [status.sessionId]: status },
-      ...sessionMessageCountPatch(state, status.sessionId, status.messageCount),
+      ...sessionInfoPatchForStatus(state, status),
       ...(clearsStaleActivity ? { sessionActivities: omitSessionActivity(state.sessionActivities, status.sessionId) } : {}),
       status: state.selectedSession?.id === status.sessionId ? status : state.status,
       activity: state.selectedSession?.id === status.sessionId && clearsStaleActivity ? undefined : state.activity,
@@ -548,21 +544,31 @@ function omitSessionActivity(activities: Record<string, SessionActivity>, sessio
   return Object.fromEntries(Object.entries(activities).filter(([id]) => id !== sessionId));
 }
 
-function sessionMessageCountPatch(state: AppState, sessionId: string, messageCount: number | undefined): Pick<Partial<AppState>, "sessions" | "selectedSession"> {
-  if (messageCount === undefined) return {};
+function sessionInfoPatchForStatus(state: AppState, status: SessionStatus): Pick<Partial<AppState>, "sessions" | "selectedSession"> {
+  const updateSession = (session: SessionInfo): SessionInfo => {
+    if (session.id !== status.sessionId) return session;
+    let next = session;
+    const assign = (patch: Partial<SessionInfo>) => { next = { ...next, ...patch }; };
 
-  const sessionsChanged = state.sessions.some((session) => session.id === sessionId && session.messageCount !== messageCount);
-  const sessions = sessionsChanged
-    ? state.sessions.map((session) => session.id === sessionId ? { ...session, messageCount } : session)
-    : undefined;
-  const selectedSession = state.selectedSession?.id === sessionId && state.selectedSession.messageCount !== messageCount
-    ? { ...state.selectedSession, messageCount }
-    : state.selectedSession;
+    if (status.messageCount !== undefined && next.messageCount !== status.messageCount) assign({ messageCount: status.messageCount });
+    if (status.persistence !== undefined && next.persistence !== status.persistence) assign({ persistence: status.persistence });
+    if (status.actions !== undefined && !sameSessionActions(next.actions, status.actions)) assign({ actions: status.actions });
+    if (status.persistence === "persisted" && isCachedNewSessionInfo(next)) next = stripCachedNewSessionMarker(next);
+
+    return next;
+  };
+
+  const sessions = state.sessions.map(updateSession);
+  const selectedSession = state.selectedSession === undefined ? undefined : updateSession(state.selectedSession);
 
   return {
-    ...(sessions === undefined ? {} : { sessions }),
+    ...(sessions.some((session, index) => session !== state.sessions[index]) ? { sessions } : {}),
     ...(selectedSession !== state.selectedSession ? { selectedSession } : {}),
   };
+}
+
+function sameSessionActions(a: SessionInfo["actions"], b: SessionInfo["actions"]): boolean {
+  return a?.archive === b?.archive && a?.discard === b?.discard && a?.restore === b?.restore;
 }
 
 function isTranscriptEvent(event: SessionUiEvent): boolean {

@@ -62,6 +62,14 @@ export interface Workspace {
   isGitWorktree: boolean;
 }
 
+export type SessionPersistence = "ephemeral" | "persisted" | "archived";
+
+export interface SessionActionCapabilities {
+  archive: boolean;
+  discard: boolean;
+  restore: boolean;
+}
+
 export interface SessionInfo {
   id: string;
   path: string;
@@ -74,6 +82,8 @@ export interface SessionInfo {
   parentSessionPath?: string;
   archived?: boolean;
   archivedAt?: string;
+  persistence?: SessionPersistence;
+  actions?: SessionActionCapabilities;
 }
 
 export interface ArchiveSessionsResponse {
@@ -156,6 +166,8 @@ export interface SessionStatus {
   pendingMessageCount: number;
   queuedMessages: QueuedSessionMessage[];
   messageCount?: number;
+  persistence?: SessionPersistence;
+  actions?: SessionActionCapabilities;
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
   cost: number;
   contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };

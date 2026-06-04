@@ -157,13 +157,34 @@ describe("SessionController", () => {
     );
 
     const send = controller.send("hello");
-    controller.applyGlobalEvent({ type: "status.update", status: { ...status(oldSession.id), messageCount: 1 } });
+    controller.applyGlobalEvent({ type: "status.update", status: { ...status(oldSession.id), messageCount: 1, persistence: "persisted", actions: { archive: true, discard: false, restore: false } } });
     resolvePrompt?.();
     await send;
 
     expect(state.sessions[0]?.messageCount).toBe(1);
     expect(isCachedNewSessionInfo(state.sessions[0])).toBe(false);
     expect(state.selectedSession?.messageCount).toBe(1);
+  });
+
+  it("keeps shell-only accepted cached sessions discardable until the server reports persistence", async () => {
+    const cachedSession = markCachedNewSessionInfo(oldSession);
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: cachedSession, sessions: [cachedSession] };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      shell: () => Promise.resolve({ accepted: true }),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket: new FakeSocket() },
+    );
+
+    await controller.runShell("!!echo hidden");
+
+    expect(isCachedNewSessionInfo(state.sessions[0])).toBe(true);
+    expect(isCachedNewSessionInfo(state.selectedSession)).toBe(true);
   });
 
   it("recreates missing browser-cached new sessions and moves their draft", async () => {

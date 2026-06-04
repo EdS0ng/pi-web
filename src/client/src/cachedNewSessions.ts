@@ -14,7 +14,7 @@ function browserStorage(): Storage | undefined {
 }
 
 export function rememberCachedNewSession(session: SessionInfo, storage = browserStorage()): void {
-  if (session.messageCount !== 0 || session.archived === true) return;
+  if (session.messageCount !== 0 || session.archived === true || session.persistence === "persisted") return;
   const sessions = loadCachedNewSessions(storage).filter((candidate) => candidate.id !== session.id);
   saveCachedNewSessions([markCachedNewSessionInfo(session), ...sessions], storage);
 }
@@ -55,6 +55,8 @@ export function stripCachedNewSessionMarker(session: SessionInfo): SessionInfo {
     ...(session.parentSessionPath === undefined ? {} : { parentSessionPath: session.parentSessionPath }),
     ...(session.archived === true ? { archived: true } : {}),
     ...(session.archivedAt === undefined ? {} : { archivedAt: session.archivedAt }),
+    ...(session.persistence === undefined ? {} : { persistence: session.persistence }),
+    ...(session.actions === undefined ? {} : { actions: session.actions }),
   };
 }
 
@@ -91,6 +93,8 @@ function parseCachedSession(value: unknown): CachedNewSessionInfo[] {
   if (id === undefined || path === undefined || cwd === undefined || created === undefined || modified === undefined || firstMessage === undefined || messageCount !== 0) return [];
   const name = optionalStringField(value, "name");
   const parentSessionPath = optionalStringField(value, "parentSessionPath");
+  const persistence = optionalPersistenceField(value, "persistence");
+  const actions = optionalActionsField(value, "actions");
   return [{
     id,
     path,
@@ -101,6 +105,8 @@ function parseCachedSession(value: unknown): CachedNewSessionInfo[] {
     messageCount,
     firstMessage,
     ...(parentSessionPath === undefined ? {} : { parentSessionPath }),
+    ...(persistence === undefined ? {} : { persistence }),
+    ...(actions === undefined ? {} : { actions }),
     browserCachedNew: true,
   }];
 }
@@ -126,4 +132,19 @@ function optionalStringField(record: Record<string, unknown>, key: string): stri
 function numberField(record: Record<string, unknown>, key: string): number | undefined {
   const value = record[key];
   return typeof value === "number" ? value : undefined;
+}
+
+function optionalPersistenceField(record: Record<string, unknown>, key: string): SessionInfo["persistence"] | undefined {
+  const value = record[key];
+  return value === "ephemeral" || value === "persisted" || value === "archived" ? value : undefined;
+}
+
+function optionalActionsField(record: Record<string, unknown>, key: string): SessionInfo["actions"] | undefined {
+  const value = record[key];
+  if (!isRecord(value)) return undefined;
+  const archive = value["archive"];
+  const discard = value["discard"];
+  const restore = value["restore"];
+  if (typeof archive !== "boolean" || typeof discard !== "boolean" || typeof restore !== "boolean") return undefined;
+  return { archive, discard, restore };
 }

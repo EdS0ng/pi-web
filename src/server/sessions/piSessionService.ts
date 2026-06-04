@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
@@ -274,6 +275,8 @@ export class PiSessionService {
       modified: new Date().toISOString(),
       messageCount: session.messages.length,
       firstMessage: "",
+      persistence: sessionPersistenceFromActiveSession(session),
+      actions: sessionActionsForActiveSession(session),
     };
   }
 
@@ -523,6 +526,7 @@ export class PiSessionService {
     if (sessionFile === undefined || sessionFile === "") throw new Error("Session is not persisted");
     const listed = (await this.sessionManager.list(cwd)).find((candidate) => candidate.id === session.sessionId);
     if (listed !== undefined) return archiveInputFromListEntry(listed);
+    if (!isActiveSessionMaterialized(session)) throw new Error("Session is not persisted yet. Discard it or wait for an assistant response before archiving.");
     return archiveInputFromActiveSession(session);
   }
 
@@ -863,6 +867,8 @@ export class PiSessionService {
       pendingMessageCount: this.pendingMessageCount(session),
       queuedMessages: queuedMessagesFromSession(session, this.compactionQueuedMessages(session.sessionId)),
       messageCount: session.messages.length,
+      persistence: sessionPersistenceFromActiveSession(session),
+      actions: sessionActionsForActiveSession(session, this.hasActiveWork(session)),
       tokens: stats.tokens,
       cost: stats.cost,
       ...(contextUsage === undefined ? {} : { contextUsage }),
@@ -906,6 +912,8 @@ function clientSessionFromListEntry(session: PiSessionListEntry): ClientSession 
     messageCount: session.messageCount,
     firstMessage: session.firstMessage,
     ...(session.parentSessionPath === undefined ? {} : { parentSessionPath: session.parentSessionPath }),
+    persistence: "persisted",
+    actions: persistedSessionActions(),
   };
 }
 
@@ -925,7 +933,7 @@ function archiveInputFromListEntry(session: PiSessionListEntry): ArchiveSessionI
 
 function archiveInputFromActiveSession(session: PiAgentSession): ArchiveSessionInput {
   const sessionFile = session.sessionFile;
-  if (sessionFile === undefined || sessionFile === "") throw new Error("Session is not persisted");
+  if (sessionFile === undefined || sessionFile === "" || !existsSync(sessionFile)) throw new Error("Session is not persisted yet. Discard it or wait for an assistant response before archiving.");
   const parentSessionPath = session.sessionManager.getHeader?.()?.parentSession;
   return {
     sessionId: session.sessionId,
@@ -989,6 +997,32 @@ function sessionHasActiveWork(session: PiAgentSession, extraQueuedMessageCount =
   return session.isStreaming || session.isCompacting || session.isBashRunning || session.pendingMessageCount + extraQueuedMessageCount > 0;
 }
 
+function sessionPersistenceFromActiveSession(session: PiAgentSession): "ephemeral" | "persisted" {
+  return isActiveSessionMaterialized(session) ? "persisted" : "ephemeral";
+}
+
+function sessionActionsForActiveSession(session: PiAgentSession, hasActiveWork = sessionHasActiveWork(session)) {
+  const persisted = isActiveSessionMaterialized(session);
+  return {
+    archive: persisted && !hasActiveWork,
+    discard: !persisted,
+    restore: false,
+  };
+}
+
+function persistedSessionActions() {
+  return { archive: true, discard: false, restore: false };
+}
+
+function archivedSessionActions() {
+  return { archive: false, discard: false, restore: true };
+}
+
+function isActiveSessionMaterialized(session: PiAgentSession): boolean {
+  const sessionFile = session.sessionFile;
+  return sessionFile !== undefined && sessionFile !== "" && existsSync(sessionFile);
+}
+
 function sessionDisplayName(session: PiAgentSession): string {
   return session.sessionName ?? session.sessionId;
 }
@@ -1014,6 +1048,8 @@ function clientSessionFromArchivedRecord(record: ArchivedSessionRecord, fallback
     ...(parentSessionPath === undefined ? {} : { parentSessionPath }),
     archived: true,
     archivedAt: record.archivedAt,
+    persistence: "archived",
+    actions: archivedSessionActions(),
   };
 }
 

@@ -1,6 +1,6 @@
 import { isSessionActive } from "../../../../shared/activity";
 import type { AppState } from "../../appState";
-import { isCachedNewSessionInfo } from "../../cachedNewSessions";
+import { canArchiveSession, canDeleteSession } from "../../sessionActions";
 import { isWorkspaceDeletionPending } from "../../workspaceDeletion";
 import type { PluginAction } from "../types";
 
@@ -183,10 +183,9 @@ function hasDeletableWorkspace(context: { state: AppState }): boolean {
 }
 
 function hasArchivableSession(context: { state: AppState }): boolean {
-  const session = context.state.selectedSession;
-  return session !== undefined && session.archived !== true && !isCachedNewSessionInfo(session);
+  return canArchiveSession(context.state.selectedSession, context.state.status);
 }
 
 function hasCachedNewSession(context: { state: AppState }): boolean {
-  return isCachedNewSessionInfo(context.state.selectedSession);
+  return canDeleteSession(context.state.selectedSession, context.state.status);
 }

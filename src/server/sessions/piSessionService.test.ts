@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import type { GlobalSessionEvent, SessionUiEvent } from "../../shared/apiTypes.js";
@@ -146,13 +149,74 @@ describe("PiSessionService", () => {
     const session = await service.start("/workspace");
 
     expect(createCalls).toBe(1);
-    expect(session).toMatchObject({ id: "session-1", cwd: "/workspace", messageCount: 0 });
+    expect(session).toMatchObject({ id: "session-1", cwd: "/workspace", messageCount: 0, persistence: "ephemeral", actions: { archive: false, discard: true, restore: false } });
     expect(service.activeCount()).toBe(1);
-    expect(hub.globalEvents.some((event) => event.type === "status.update" && event.status.sessionId === "session-1")).toBe(true);
+    expect(hub.globalEvents.some((event) => event.type === "status.update" && event.status.sessionId === "session-1" && event.status.persistence === "ephemeral")).toBe(true);
 
     await service.dispose();
     expect(fake.calls.abort).toBe(1);
     expect(fake.calls.dispose).toBe(1);
+  });
+
+  it("reports materialized session persistence and disables archive while active", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-session-status-"));
+    try {
+      const sessionFile = join(root, "session.jsonl");
+      await writeFile(sessionFile, "", "utf8");
+      const fake = fakeRuntime("persisted-session", { sessionFile });
+      const service = new PiSessionService(new CapturingSessionEventHub(), {
+        createAgentRuntime: runtimeCreator(fake.runtime),
+        sessionManager: sessionGateway([sessionRecord("persisted-session")]),
+        heartbeatIntervalMs: 60_000,
+      });
+
+      await expect(service.status("persisted-session")).resolves.toMatchObject({
+        persistence: "persisted",
+        actions: { archive: true, discard: false, restore: false },
+      });
+
+      fake.session.isBashRunning = true;
+      await expect(service.status("persisted-session")).resolves.toMatchObject({
+        persistence: "persisted",
+        actions: { archive: false, discard: false, restore: false },
+      });
+
+      await service.dispose();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects archiving an idle session that has not been materialized", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-ephemeral-session-"));
+    try {
+      const fake = fakeRuntime("ephemeral-session", { sessionFile: join(root, "missing.jsonl") });
+      const archiveCalls: string[] = [];
+      const service = new PiSessionService(new CapturingSessionEventHub(), {
+        createAgentRuntime: runtimeCreator(fake.runtime),
+        archiveStore: {
+          list: () => Promise.resolve([]),
+          get: () => Promise.resolve(undefined),
+          archive: (input) => {
+            archiveCalls.push(input.sessionId);
+            return Promise.resolve({ sessionId: input.sessionId, cwd: input.cwd, archivedAt: "2026-01-01T00:00:00.000Z" });
+          },
+          restore: () => Promise.resolve(),
+          isArchived: () => Promise.resolve(false),
+        },
+        sessionManager: sessionGateway([]),
+        heartbeatIntervalMs: 60_000,
+      });
+
+      await service.start("/workspace");
+
+      await expect(service.archive("ephemeral-session")).rejects.toThrow("Session is not persisted yet");
+      expect(archiveCalls).toEqual([]);
+
+      await service.dispose();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("clears stale active activity once a previously active session becomes idle", async () => {

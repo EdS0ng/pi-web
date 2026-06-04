@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCommandResult, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMessagePage, parsePiWebConfigResponse, parsePiWebPluginsResponse, parseSessionStatus, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseWorkspaceActivityResponse } from "./parsers";
+import { parseCommandResult, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMessagePage, parsePiWebConfigResponse, parsePiWebPluginsResponse, parseSessionInfo, parseSessionStatus, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseWorkspaceActivityResponse } from "./parsers";
 
 describe("API parsers", () => {
   it("parses PI WEB config responses", () => {
@@ -31,7 +31,7 @@ describe("API parsers", () => {
     expect(parseMessagePage({ messages: ["c"], start: 3, total: 9 })).toEqual({ messages: ["c"], start: 3, total: 9 });
   });
 
-  it("validates session status including optional model and nullable context usage", () => {
+  it("validates session status including optional model, persistence, actions, and nullable context usage", () => {
     expect(parseSessionStatus({
       sessionId: "s1",
       isStreaming: false,
@@ -40,6 +40,8 @@ describe("API parsers", () => {
       pendingMessageCount: 2,
       queuedMessages: [{ kind: "steer", text: "adjust this" }, { kind: "followUp", text: "then do that" }],
       messageCount: 7,
+      persistence: "persisted",
+      actions: { archive: true, discard: false, restore: false },
       tokens: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, total: 10 },
       cost: 0.12,
       model: { provider: "p", id: "m", contextWindow: 100, reasoning: { effort: "low" } },
@@ -53,12 +55,28 @@ describe("API parsers", () => {
       pendingMessageCount: 2,
       queuedMessages: [{ kind: "steer", text: "adjust this" }, { kind: "followUp", text: "then do that" }],
       messageCount: 7,
+      persistence: "persisted",
+      actions: { archive: true, discard: false, restore: false },
       tokens: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, total: 10 },
       cost: 0.12,
       model: { provider: "p", id: "m", contextWindow: 100, reasoning: { effort: "low" } },
       contextUsage: { tokens: null, contextWindow: 100, percent: 0.5 },
       thinkingLevel: "medium",
     });
+  });
+
+  it("parses session info persistence and actions", () => {
+    expect(parseSessionInfo({
+      id: "s1",
+      path: "/tmp/s1.jsonl",
+      cwd: "/repo",
+      created: "now",
+      modified: "later",
+      messageCount: 0,
+      firstMessage: "",
+      persistence: "ephemeral",
+      actions: { archive: false, discard: true, restore: false },
+    })).toMatchObject({ persistence: "ephemeral", actions: { archive: false, discard: true, restore: false } });
   });
 
   it("parses workspace activity snapshots", () => {

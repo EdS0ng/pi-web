@@ -82,6 +82,8 @@ export function parseSessionInfo(value: unknown): SessionInfo {
   const name = optionalString(record, "name");
   const parentSessionPath = optionalString(record, "parentSessionPath");
   const archivedAt = optionalString(record, "archivedAt");
+  const persistence = optionalSessionPersistence(record["persistence"]);
+  const actions = optionalSessionActions(record["actions"]);
   return {
     id: requireString(record, "id"),
     path: requireString(record, "path"),
@@ -94,6 +96,24 @@ export function parseSessionInfo(value: unknown): SessionInfo {
     ...(parentSessionPath === undefined ? {} : { parentSessionPath }),
     ...(record["archived"] === true ? { archived: true } : {}),
     ...(archivedAt === undefined ? {} : { archivedAt }),
+    ...(persistence === undefined ? {} : { persistence }),
+    ...(actions === undefined ? {} : { actions }),
+  };
+}
+
+function optionalSessionPersistence(value: unknown): SessionInfo["persistence"] | undefined {
+  if (value === undefined) return undefined;
+  if (value !== "ephemeral" && value !== "persisted" && value !== "archived") throw new Error("Invalid session persistence");
+  return value;
+}
+
+function optionalSessionActions(value: unknown): SessionInfo["actions"] | undefined {
+  if (value === undefined) return undefined;
+  const record = requireRecord(value);
+  return {
+    archive: requireBoolean(record, "archive"),
+    discard: requireBoolean(record, "discard"),
+    restore: requireBoolean(record, "restore"),
   };
 }
 
@@ -107,6 +127,8 @@ export function parseSessionStatus(value: unknown): SessionStatus {
     pendingMessageCount: requireNumber(record, "pendingMessageCount"),
     queuedMessages: record["queuedMessages"] === undefined ? [] : arrayOf(parseQueuedSessionMessage)(record["queuedMessages"]),
     ...optionalField("messageCount", optionalNumber(record, "messageCount")),
+    ...optionalField("persistence", optionalSessionPersistence(record["persistence"])),
+    ...optionalField("actions", optionalSessionActions(record["actions"])),
     tokens: parseTokens(record["tokens"]),
     cost: requireNumber(record, "cost"),
     ...optionalModel(record["model"]),

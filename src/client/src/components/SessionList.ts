@@ -2,6 +2,7 @@ import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { SessionActivity, SessionInfo, SessionStatus } from "../api";
 import { isCachedNewSessionInfo } from "../cachedNewSessions";
+import { primarySessionAction, type SessionPrimaryAction } from "../sessionActions";
 import { isSessionActive } from "../../../shared/activity";
 import { actionMenuPanelStyle } from "./actionMenu";
 import { renderActivityIndicator } from "./activityBadge";
@@ -104,6 +105,7 @@ export class SessionList extends LitElement {
   private renderSession(row: SessionRow, descendantCount: number) {
     const { session } = row;
     const cappedDepth = Math.min(row.depth, 2);
+    const primaryAction = primarySessionAction(session, this.statuses[session.id]);
     return html`
       <div
         class="action-row ${this.selected?.id === session.id ? "selected" : ""} ${session.archived === true ? "archived" : ""}"
@@ -121,18 +123,24 @@ export class SessionList extends LitElement {
           ${this.openMenuSessionId === session.id ? html`
             <div class="action-menu-panel" style=${this.menuStyle}>
               ${session.parentSessionPath !== undefined ? html`<button title="Detach from parent" @click=${() => { this.openMenuSessionId = undefined; this.onDetachParent?.(session); }}>Detach from parent</button>` : null}
-              ${isCachedNewSessionInfo(session)
-                ? html`<button title="Delete browser-cached new session" @click=${() => { this.openMenuSessionId = undefined; this.onDelete?.(session); }}>Delete</button>`
-                : session.archived === true
-                  ? html`<button title="Restore session" @click=${() => { this.openMenuSessionId = undefined; this.onRestore?.(session); }}>Restore</button>`
-                  : html`
-                    <button title="Archive session" @click=${() => { this.openMenuSessionId = undefined; this.onArchive?.(session); }}>Archive</button>
-                    ${descendantCount > 0 ? html`<button title="Archive this session and its descendants" @click=${() => { this.openMenuSessionId = undefined; this.confirmArchiveWithDescendants(session, descendantCount); }}>Archive with descendants (${descendantCount})</button>` : null}
-                  `}
+              ${this.renderPrimaryAction(session, primaryAction, descendantCount)}
             </div>
           ` : null}
         </div>
       </div>
+    `;
+  }
+
+  private renderPrimaryAction(session: SessionInfo, action: SessionPrimaryAction, descendantCount: number) {
+    if (action.kind === "delete") {
+      return html`<button title=${action.title} ?disabled=${!action.enabled} @click=${() => { this.openMenuSessionId = undefined; this.onDelete?.(session); }}>Delete</button>`;
+    }
+    if (action.kind === "restore") {
+      return html`<button title=${action.title} ?disabled=${!action.enabled} @click=${() => { this.openMenuSessionId = undefined; this.onRestore?.(session); }}>Restore</button>`;
+    }
+    return html`
+      <button title=${action.title} ?disabled=${!action.enabled} @click=${() => { this.openMenuSessionId = undefined; this.onArchive?.(session); }}>Archive</button>
+      ${descendantCount > 0 ? html`<button title="Archive this session and its descendants" ?disabled=${!action.enabled} @click=${() => { this.openMenuSessionId = undefined; this.confirmArchiveWithDescendants(session, descendantCount); }}>Archive with descendants (${descendantCount})</button>` : null}
     `;
   }
 
