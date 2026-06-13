@@ -1,4 +1,4 @@
-import type { FileSuggestion, PiWebConfigValues, RunTerminalCommandInput, SessionRef, TerminalCommandRun, TerminalCommandRunFilter } from "../../../shared/apiTypes";
+import type { FileSuggestion, PiWebConfigValues, PromptAttachment, RunTerminalCommandInput, SessionRef, TerminalCommandRun, TerminalCommandRunFilter } from "../../../shared/apiTypes";
 import { request } from "./http";
 import {
   arrayOf,
@@ -28,6 +28,7 @@ import {
   parsePiWebStatusResponse,
   parseProject,
   parseRestored,
+  parseSavedAttachments,
   parseSessionInfo,
   parseSessionStatus,
   parseSlashCommand,
@@ -130,7 +131,8 @@ export const sessionsApi = {
   setThinkingLevel: (session: SessionLookup, level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh", machineId = "local") => request(sessionUrl(session, "thinking-level", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session, { level }) }),
   cycleThinkingLevel: (session: SessionLookup, machineId = "local") => request(sessionUrl(session, "thinking-level/cycle", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session) }),
   commands: (session: SessionLookup, machineId = "local") => request(sessionQueryUrl(session, "commands", machineId), arrayOf(parseSlashCommand)),
-  prompt: (session: SessionLookup, text: string, streamingBehavior?: "steer" | "followUp", machineId = "local") => request(sessionUrl(session, "prompt", machineId), parseAccepted, { method: "POST", body: sessionBody(session, streamingBehavior === undefined ? { text } : { text, streamingBehavior }) }),
+  prompt: (session: SessionLookup, text: string, streamingBehavior?: "steer" | "followUp", machineId = "local", attachments?: PromptAttachment[]) => request(sessionUrl(session, "prompt", machineId), parseAccepted, { method: "POST", body: sessionBody(session, { text, ...(streamingBehavior === undefined ? {} : { streamingBehavior }), ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}) }) }),
+  saveAttachments: (session: SessionLookup, attachments: PromptAttachment[], machineId = "local", folder?: string) => request(sessionUrl(session, "attachments", machineId), parseSavedAttachments, { method: "POST", body: sessionBody(session, { attachments, ...(folder === undefined ? {} : { folder }) }) }),
   shell: (session: SessionLookup, text: string, machineId = "local") => request(sessionUrl(session, "shell", machineId), parseAccepted, { method: "POST", body: sessionBody(session, { text }) }),
   runCommand: (session: SessionLookup, text: string, machineId = "local") => request(sessionUrl(session, "commands/run", machineId), parseCommandResult, { method: "POST", body: sessionBody(session, { text }) }),
   respondToCommand: (session: SessionLookup, requestId: string, value: string, machineId = "local") => request(sessionUrl(session, "commands/respond", machineId), parseCommandResult, { method: "POST", body: sessionBody(session, { requestId, value }) }),

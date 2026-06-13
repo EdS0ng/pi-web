@@ -34,6 +34,8 @@ export interface AppDependencies {
   config?: PiWebConfigService;
   clientDist?: string | false;
   logger?: FastifyServerOptions["logger"];
+  /** Maximum accepted HTTP request body size in bytes. */
+  bodyLimit?: number;
 }
 
 function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectService, workspaces: WorkspaceService, prefix: string): void {
@@ -88,7 +90,7 @@ function registerLocalFileSuggestionRoutes(app: FastifyInstance, prefix: string)
 }
 
 export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInstance> {
-  const app = Fastify({ logger: deps.logger ?? true });
+  const app = Fastify({ logger: deps.logger ?? true, ...(deps.bodyLimit === undefined ? {} : { bodyLimit: deps.bodyLimit }) });
   await app.register(fastifyWebsocket);
 
   const projects = deps.projects ?? new ProjectService(new ProjectStore());

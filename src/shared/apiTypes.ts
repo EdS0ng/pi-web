@@ -3,6 +3,7 @@ export type MachineStatus = "unknown" | "online" | "offline" | "error";
 
 export const PI_WEB_CAPABILITIES = {
   sessionsDeleteArchived: "sessions.deleteArchived",
+  promptAttachments: "prompt.attachments",
 } as const;
 
 export type PiWebCapability = typeof PI_WEB_CAPABILITIES[keyof typeof PI_WEB_CAPABILITIES];
@@ -55,6 +56,8 @@ export interface PiWebConfigValues {
   allowedHosts?: string[] | true;
   shortcuts?: PiWebShortcutConfig;
   plugins?: PiWebPluginConfigMap;
+  /** Maximum accepted HTTP request body size in bytes (uploads/attachments). */
+  maxUploadBytes?: number;
 }
 
 export type PiWebPluginScope = "bundled" | "local" | "user" | "project";
@@ -139,6 +142,41 @@ export interface SessionActivity {
 export interface QueuedSessionMessage {
   kind: "steer" | "followUp";
   text: string;
+}
+
+/**
+ * A binary attachment carried with a prompt. The wire format mirrors pi's own
+ * `ImageContent` shape (`{ type: "image", data, mimeType }`) so attachments are
+ * fully compatible with the underlying pi coding agent.
+ */
+export interface PromptAttachment {
+  /** Kind of attachment. Only images are supported by pi today. */
+  kind: "image";
+  /** IANA mime type (for example "image/png"). */
+  mimeType: string;
+  /** Base64-encoded binary payload (no data: URL prefix). */
+  data: string;
+  /** Optional original filename, used for previews and folder-mode filenames. */
+  name?: string;
+}
+
+/**
+ * How prompt attachments should be delivered to the session.
+ * - "inline": send the binary to pi as native image content (multimodal input).
+ * - "folder": save the file into the workspace and reference it from the prompt
+ *   text so the agent reads it with its own tools.
+ */
+export type PromptAttachmentDelivery = "inline" | "folder";
+
+export interface SavedPromptAttachment {
+  /** Workspace-relative path the attachment was written to. */
+  path: string;
+  mimeType: string;
+  size: number;
+}
+
+export interface SaveAttachmentsResponse {
+  attachments: SavedPromptAttachment[];
 }
 
 export interface SessionModel {

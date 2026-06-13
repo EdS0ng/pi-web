@@ -15,8 +15,9 @@ import { TerminalService } from "./terminals/terminalService.js";
 import { registerTerminalRoutes } from "./terminals/terminalRoutes.js";
 import { getPiWebRuntimeComponent } from "./piWebStatus.js";
 import { SESSIOND_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
+import { maxUploadBytes } from "../config.js";
 
-const app = Fastify({ logger: true });
+const app = Fastify({ logger: true, bodyLimit: maxUploadBytes() });
 await app.register(fastifyWebsocket);
 
 const eventHub = new SessionEventHub();

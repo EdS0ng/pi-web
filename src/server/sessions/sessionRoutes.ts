@@ -18,6 +18,13 @@ interface PromptRequestBody {
   cwd?: unknown;
   text?: unknown;
   streamingBehavior?: unknown;
+  attachments?: unknown;
+}
+
+interface AttachmentsRequestBody {
+  cwd?: unknown;
+  attachments?: unknown;
+  folder?: unknown;
 }
 
 export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionService, eventHub: SessionEventHub, prefix = ""): void {
@@ -121,8 +128,20 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
   app.post<{ Params: { sessionId: string }; Body: PromptRequestBody | undefined }>(`${prefix}/sessions/:sessionId/prompt`, async (request, reply) => {
     try {
       const body = optionalRecord(request.body);
-      await sessions.prompt(sessionLookupFromBody(request.params.sessionId, body), body["text"], body["streamingBehavior"]);
+      await sessions.prompt(sessionLookupFromBody(request.params.sessionId, body), body["text"], body["streamingBehavior"], body["attachments"]);
       return { accepted: true };
+    } catch (error) {
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { sessionId: string }; Body: AttachmentsRequestBody | undefined }>(`${prefix}/sessions/:sessionId/attachments`, async (request, reply) => {
+    try {
+      const body = optionalRecord(request.body);
+      const folder = body["folder"];
+      if (folder !== undefined && typeof folder !== "string") throw new Error("folder field must be a string");
+      const attachments = await sessions.saveAttachments(sessionLookupFromBody(request.params.sessionId, body), body["attachments"], folder);
+      return { attachments };
     } catch (error) {
       return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
     }

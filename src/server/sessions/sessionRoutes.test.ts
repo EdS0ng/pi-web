@@ -53,6 +53,28 @@ describe("session routes", () => {
     }
   });
 
+  it("forwards prompt attachments and supports the save-attachments route", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService(eventHub);
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    const attachments = [{ kind: "image", mimeType: "image/png", data: "QUJD", name: "shot.png" }];
+    try {
+      const promptResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/prompt", payload: { text: "look", attachments } });
+      expect(promptResponse.statusCode).toBe(200);
+      expect(routeService.calls.at(-1)).toEqual({ lookup: "session-1", text: "look", attachments });
+
+      const saveResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/attachments", payload: { attachments, folder: "uploads" } });
+      expect(saveResponse.statusCode).toBe(200);
+      expect(saveResponse.json()).toEqual({ attachments: [{ path: "uploads/shot.png", mimeType: "image/png", size: 3 }] });
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
   it("passes cwd when per-session routes include workspace context", async () => {
     const routeApp = Fastify({ logger: false });
     await routeApp.register(fastifyWebsocket);
@@ -98,9 +120,18 @@ class CapturingRouteSessionService extends PiSessionService {
     });
   }
 
-  override prompt(lookup: string | PiSessionRef, text: unknown): Promise<void> {
-    this.calls.push({ lookup, text });
+  override prompt(lookup: string | PiSessionRef, text: unknown, _streamingBehavior?: unknown, attachments?: unknown): Promise<void> {
+    this.calls.push(attachments === undefined ? { lookup, text } : { lookup, text, attachments });
     return Promise.resolve();
+  }
+
+  override saveAttachments(_lookup: string | PiSessionRef, attachments: unknown, folder?: string) {
+    const list = Array.isArray(attachments) ? attachments : [];
+    return Promise.resolve(list.map((attachment: { mimeType: string; data: string; name?: string }) => ({
+      path: `${folder ?? ".pi-web/paste"}/${attachment.name ?? "file.png"}`,
+      mimeType: attachment.mimeType,
+      size: Buffer.from(attachment.data, "base64").byteLength,
+    })));
   }
 }
 

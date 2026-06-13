@@ -1,4 +1,4 @@
-import { api as defaultApi, type CommandResult, type SessionActivity, type SessionInfo, type SessionRef, type SessionStatus, type ThinkingLevel } from "../api";
+import { api as defaultApi, type CommandResult, type PromptAttachment, type SessionActivity, type SessionInfo, type SessionRef, type SessionStatus, type ThinkingLevel } from "../api";
 import type { AppState } from "../appState";
 import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInfo, rememberCachedNewSession, stripCachedNewSessionMarker } from "../cachedNewSessions";
 import { textMessage } from "../chatMessages";
@@ -168,14 +168,15 @@ export class SessionController {
     }
   }
 
-  async send(text: string, streamingBehavior?: "steer" | "followUp") {
+  async send(text: string, streamingBehavior?: "steer" | "followUp", attachments?: PromptAttachment[]) {
     const trimmed = text.trim();
-    if (trimmed.startsWith("/")) return this.runCommand(text);
-    if (isShellInput(text)) return this.runShell(text);
+    const hasAttachments = attachments !== undefined && attachments.length > 0;
+    if (!hasAttachments && trimmed.startsWith("/")) return this.runCommand(text);
+    if (!hasAttachments && isShellInput(text)) return this.runShell(text);
     const session = this.getState().selectedSession;
     if (!session || session.archived === true) return;
     try {
-      await this.api.prompt(session, text, streamingBehavior, selectedMachineId(this.getState()));
+      await this.api.prompt(session, text, streamingBehavior, selectedMachineId(this.getState()), attachments);
       this.markCachedNewSessionPersisted(session);
     } catch (error) {
       this.setState({ error: String(error) });
@@ -192,6 +193,12 @@ export class SessionController {
     } catch (error) {
       this.setState({ messages: [...this.getState().messages, textMessage("system", String(error))], error: String(error) });
     }
+  }
+
+  async saveAttachments(attachments: PromptAttachment[], folder?: string) {
+    const session = this.getState().selectedSession;
+    if (!session || session.archived === true || attachments.length === 0) return [];
+    return this.api.saveAttachments(session, attachments, selectedMachineId(this.getState()), folder);
   }
 
   async runCommand(text: string) {

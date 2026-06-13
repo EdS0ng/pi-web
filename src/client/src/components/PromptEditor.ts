@@ -5,13 +5,25 @@ import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { defaultHighlightStyle, indentOnInput, indentUnit, syntaxHighlighting } from "@codemirror/language";
 import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
-import { api, type FileSuggestion, type SessionStatus, type SlashCommand } from "../api";
+import { api, type FileSuggestion, type PromptAttachment, type SessionStatus, type SlashCommand } from "../api";
+import type { PromptAttachmentDelivery } from "../../../shared/apiTypes";
+import { isSupportedImageMimeType } from "../../../shared/promptAttachments";
 import { inputModeForDraft } from "../inputModes";
 import { machineSessionKey } from "../machineKeys";
 import { detectPromptCompletionTrigger, fileCompletionInsertText, type PromptCompletionTrigger } from "../promptCompletions";
 import { clearDraft, loadDraft, saveDraft } from "../promptDraftStorage";
+import { loadAttachmentDelivery, saveAttachmentDelivery } from "../attachmentPreferences";
 import { promptEditorStyles, type CompletionItem } from "./shared";
 import "./AutocompleteMenu";
+
+interface PendingAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  /** Base64 payload without the data: URL prefix. */
+  data: string;
+  size: number;
+}
 
 @customElement("prompt-editor")
 export class PromptEditor extends LitElement {
@@ -23,14 +35,21 @@ export class PromptEditor extends LitElement {
   @property({ type: Boolean }) isCompacting = false;
   @property({ type: Boolean }) canStop = false;
   @property({ attribute: false }) status?: SessionStatus;
-  @property({ attribute: false }) onSend?: (text: string, streamingBehavior?: "steer" | "followUp") => void;
+  @property({ attribute: false }) onSend?: (text: string, streamingBehavior?: "steer" | "followUp", attachments?: PromptAttachment[]) => void;
+  @property({ attribute: false }) onSaveAttachments?: (attachments: PromptAttachment[]) => Promise<{ path: string }[]>;
   @property({ attribute: false }) onStop?: () => void;
   @property({ attribute: false }) onSelectModel?: () => void;
   @property({ attribute: false }) onSelectThinking?: () => void;
   @query(".markdown-editor") private editorHost?: HTMLDivElement;
+  @query(".attachment-input") private attachmentInput?: HTMLInputElement;
   @state() private draft = "";
   @state() private completions: CompletionItem[] = [];
   @state() private selectedIndex = 0;
+  @state() private attachments: PendingAttachment[] = [];
+  @state() private attachmentDelivery: PromptAttachmentDelivery = loadAttachmentDelivery();
+  @state() private attachmentError: string | undefined = undefined;
+  @state() private isSavingAttachments = false;
+  private attachmentSeq = 0;
   private requestVersion = 0;
   private editor: EditorView | undefined;
   private readonly editableCompartment = new Compartment();
@@ -67,18 +86,22 @@ export class PromptEditor extends LitElement {
     const inputMode = inputModeForDraft(this.draft);
     const shellMode = inputMode.kind === "shell";
     const queuesInput = this.canSteer || this.isCompacting;
+    const busy = this.disabled || this.isSavingAttachments;
     return html`
-      <footer class=${shellMode ? "shell-mode" : ""}>
+      <footer class=${shellMode ? "shell-mode" : ""} @paste=${(event: ClipboardEvent) => { void this.handlePaste(event); }} @dragover=${(event: DragEvent) => { this.handleDragOver(event); }} @drop=${(event: DragEvent) => { void this.handleDrop(event); }}>
         <div class="editor-wrap">
           <div class=${`markdown-editor${this.disabled ? " markdown-editor-disabled" : ""}`} aria-label="Message pi" aria-disabled=${this.disabled ? "true" : "false"}></div>
           ${shellMode ? html`<div class="mode-hint">Shell command${inputMode.excludeFromContext ? " · excluded from context" : ""}</div>` : null}
           ${this.isCompacting && !shellMode ? html`<div class="mode-hint">Compacting history · message will be queued</div>` : null}
+          ${this.renderAttachments()}
           <autocomplete-menu .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
         </div>
         <div class="actions">
           ${this.renderCompactStatus()}
-          <button ?disabled=${this.disabled} title=${queuesInput ? "Queue until the current activity finishes" : "Send message"} @click=${() => { this.send("followUp"); }}>${queuesInput ? "Queue" : "Send"}</button>
-          ${this.canSteer && !this.isCompacting ? html`<button ?disabled=${this.disabled} title="Steer the current response before the next model call" @click=${() => { this.send("steer"); }}>Steer</button>` : null}
+          <input class="attachment-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden @change=${(event: Event) => { void this.handleFileInput(event); }} />
+          <button class="attach-button" ?disabled=${busy} title="Attach images" @click=${() => { this.attachmentInput?.click(); }}>Attach</button>
+          <button ?disabled=${busy} title=${queuesInput ? "Queue until the current activity finishes" : "Send message"} @click=${() => { void this.send("followUp"); }}>${queuesInput ? "Queue" : "Send"}</button>
+          ${this.canSteer && !this.isCompacting ? html`<button ?disabled=${busy} title="Steer the current response before the next model call" @click=${() => { void this.send("steer"); }}>Steer</button>` : null}
           <button ?disabled=${this.disabled || !this.canStop} title=${this.canStop ? "Stop current work and clear queued messages" : "Nothing running"} @click=${() => this.onStop?.()}>Stop</button>
         </div>
       </footer>
@@ -100,6 +123,98 @@ export class PromptEditor extends LitElement {
         <button class="select-thinking" title="Select thinking level" @click=${() => this.onSelectThinking?.()}>think ${status.thinkingLevel ?? "off"}</button>
       </div>
     `;
+  }
+
+  private renderAttachments() {
+    if (this.attachments.length === 0 && this.attachmentError === undefined) return null;
+    return html`
+      <div class="attachments" aria-label="Pending attachments">
+        ${this.attachments.map((attachment) => html`
+          <div class="attachment-chip" title=${attachment.name}>
+            <img src=${`data:${attachment.mimeType};base64,${attachment.data}`} alt=${attachment.name} />
+            <button type="button" class="attachment-remove" title="Remove attachment" aria-label=${`Remove ${attachment.name}`} @click=${() => { this.removeAttachment(attachment.id); }}>×</button>
+          </div>
+        `)}
+        ${this.attachments.length > 0 ? html`
+          <label class="attachment-delivery" title="How attachments are delivered to the agent">
+            <select .value=${this.attachmentDelivery} @change=${(event: Event) => { this.changeDelivery(event); }}>
+              <option value="inline">Attach to message</option>
+              <option value="folder">Save to .pi-web/paste</option>
+            </select>
+          </label>
+        ` : null}
+        ${this.attachmentError !== undefined ? html`<div class="attachment-error">${this.attachmentError}</div>` : null}
+      </div>
+    `;
+  }
+
+  private changeDelivery(event: Event) {
+    if (!(event.target instanceof HTMLSelectElement)) return;
+    this.attachmentDelivery = event.target.value === "folder" ? "folder" : "inline";
+    saveAttachmentDelivery(this.attachmentDelivery);
+  }
+
+  private removeAttachment(id: string) {
+    this.attachments = this.attachments.filter((attachment) => attachment.id !== id);
+  }
+
+  private async handlePaste(event: ClipboardEvent) {
+    const files = imageFilesFromDataTransfer(event.clipboardData);
+    if (files.length === 0) return;
+    event.preventDefault();
+    await this.addAttachmentFiles(files);
+  }
+
+  private handleDragOver(event: DragEvent) {
+    if (event.dataTransfer === null) return;
+    if (Array.from(event.dataTransfer.items).some((item) => item.kind === "file" && item.type.startsWith("image/"))) {
+      event.preventDefault();
+    }
+  }
+
+  private async handleDrop(event: DragEvent) {
+    const files = imageFilesFromDataTransfer(event.dataTransfer);
+    if (files.length === 0) return;
+    event.preventDefault();
+    await this.addAttachmentFiles(files);
+  }
+
+  private async handleFileInput(event: Event) {
+    if (!(event.target instanceof HTMLInputElement) || event.target.files === null) return;
+    const files = Array.from(event.target.files);
+    event.target.value = "";
+    await this.addAttachmentFiles(files);
+  }
+
+  private async addAttachmentFiles(files: File[]) {
+    this.attachmentError = undefined;
+    for (const file of files) {
+      if (!isSupportedImageMimeType(file.type)) {
+        this.attachmentError = "Only PNG, JPEG, GIF, and WebP images are supported.";
+        continue;
+      }
+      try {
+        const data = await readFileAsBase64(file);
+        this.attachments = [...this.attachments, {
+          id: `attachment-${String(++this.attachmentSeq)}`,
+          name: file.name !== "" ? file.name : `pasted-image.${file.type.split("/")[1] ?? "png"}`,
+          mimeType: file.type,
+          data,
+          size: file.size,
+        }];
+      } catch {
+        this.attachmentError = "Failed to read an attachment.";
+      }
+    }
+  }
+
+  private currentAttachments(): PromptAttachment[] {
+    return this.attachments.map((attachment) => ({
+      kind: "image",
+      mimeType: attachment.mimeType,
+      data: attachment.data,
+      name: attachment.name,
+    }));
   }
 
   private createEditor() {
@@ -229,7 +344,7 @@ export class PromptEditor extends LitElement {
       if (completion !== undefined) this.pick(completion);
       return true;
     }
-    this.send(this.canSteer || this.isCompacting ? "followUp" : undefined);
+    void this.send(this.canSteer || this.isCompacting ? "followUp" : undefined);
     return true;
   }
 
@@ -261,14 +376,47 @@ export class PromptEditor extends LitElement {
     this.completions = [];
   }
 
-  private send(streamingBehavior?: "steer" | "followUp") {
+  private async send(streamingBehavior?: "steer" | "followUp") {
+    if (this.disabled || this.isSavingAttachments) return;
     const text = this.draft.trim();
-    if (text === "" || this.disabled) return;
+    const pending = this.attachments;
+    if (text === "" && pending.length === 0) return;
+    const behavior = this.canSteer || this.isCompacting ? streamingBehavior : undefined;
+
+    if (pending.length > 0 && this.attachmentDelivery === "folder") {
+      await this.sendWithFolderAttachments(text, behavior);
+      return;
+    }
+
+    const attachments = pending.length > 0 ? this.currentAttachments() : undefined;
+    this.resetComposer();
+    this.onSend?.(text, behavior, attachments);
+  }
+
+  private async sendWithFolderAttachments(text: string, behavior?: "steer" | "followUp") {
+    if (this.onSaveAttachments === undefined) return;
+    this.isSavingAttachments = true;
+    this.attachmentError = undefined;
+    try {
+      const saved = await this.onSaveAttachments(this.currentAttachments());
+      const references = saved.map((file) => fileCompletionInsertText(file.path, false)).join(" ");
+      const body = text === "" ? references : `${text}\n\n${references}`;
+      this.resetComposer();
+      this.onSend?.(body, behavior);
+    } catch (error) {
+      this.attachmentError = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.isSavingAttachments = false;
+    }
+  }
+
+  private resetComposer() {
     this.draft = "";
     const key = draftStorageKey(this.machineId, this.sessionId);
     if (key !== undefined) clearDraft(key);
     this.completions = [];
-    this.onSend?.(text, this.canSteer || this.isCompacting ? streamingBehavior : undefined);
+    this.attachments = [];
+    this.attachmentError = undefined;
   }
 
   static override styles = promptEditorStyles;
@@ -286,6 +434,25 @@ function emptySlashCommands(): SlashCommand[] {
 
 function emptyFileSuggestions(): FileSuggestion[] {
   return [];
+}
+
+function imageFilesFromDataTransfer(data: DataTransfer | null): File[] {
+  if (data === null) return [];
+  return Array.from(data.files).filter((file) => file.type.startsWith("image/"));
+}
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => { reject(reader.error ?? new Error("Failed to read file")); };
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") { reject(new Error("Unexpected file reader result")); return; }
+      const commaIndex = result.indexOf(",");
+      resolve(commaIndex === -1 ? result : result.slice(commaIndex + 1));
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 const proseInputAssistanceAttributes: Record<string, string> = {
