@@ -97,13 +97,60 @@ describe("session routes", () => {
       await routeApp.close();
     }
   });
+
+  it("reloads a session through the reload route, forwarding workspace context", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService(eventHub);
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const requestCwd = resolve("/repo");
+      const reloadResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/reload", payload: { cwd: requestCwd } });
+
+      expect(reloadResponse.statusCode).toBe(200);
+      expect(reloadResponse.json()).toEqual({ reloaded: true });
+      expect(routeService.reloadCalls).toEqual([{ id: "session-1", cwd: requestCwd }]);
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
+
+  it("maps reload failures to a mutation error status", async () => {
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(fastifyWebsocket);
+    const eventHub = new SessionEventHub();
+    const routeService = new CapturingRouteSessionService(eventHub);
+    routeService.reloadError = new Error("Stop current session activity before reloading");
+    registerSessionRoutes(routeApp, routeService, eventHub);
+
+    try {
+      const reloadResponse = await routeApp.inject({ method: "POST", url: "/sessions/session-1/reload", payload: {} });
+
+      expect(reloadResponse.statusCode).toBe(400);
+      expect(reloadResponse.json()).toEqual({ error: "Stop current session activity before reloading" });
+    } finally {
+      await routeService.dispose();
+      await routeApp.close();
+    }
+  });
 });
 
 class CapturingRouteSessionService extends PiSessionService {
   readonly calls: unknown[] = [];
+  readonly reloadCalls: (string | PiSessionRef)[] = [];
+  reloadError: Error | undefined;
 
   constructor(eventHub: SessionEventHub) {
     super(eventHub, { sessionManager: new RejectingSessionManager(), heartbeatIntervalMs: 60_000 });
+  }
+
+  override reload(lookup: string | PiSessionRef): Promise<void> {
+    this.reloadCalls.push(lookup);
+    if (this.reloadError !== undefined) return Promise.reject(this.reloadError);
+    return Promise.resolve();
   }
 
   override status(lookup: string | PiSessionRef) {

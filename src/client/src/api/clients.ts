@@ -27,6 +27,7 @@ import {
   parsePiWebRuntimeResponse,
   parsePiWebStatusResponse,
   parseProject,
+  parseReloaded,
   parseRestored,
   parseSavedAttachments,
   parseSessionInfo,
@@ -143,6 +144,7 @@ export const sessionsApi = {
   restore: (session: SessionLookup, machineId = "local") => request(sessionUrl(session, "restore", machineId), parseRestored, { method: "POST", body: sessionBody(session) }),
   deleteArchived: (session: SessionLookup, machineId = "local") => request(sessionBaseQueryUrl(session, machineId), parseDeleted, { method: "DELETE" }),
   detachParent: (session: SessionLookup, machineId = "local") => request(sessionUrl(session, "detach-parent", machineId), parseDetached, { method: "POST", body: sessionBody(session) }),
+  reloadSession: (session: SessionLookup, machineId = "local") => request(sessionUrl(session, "reload", machineId), parseReloaded, { method: "POST", body: sessionBody(session) }),
   authProviders: (options?: { mode?: "login" | "logout"; authType?: "oauth" | "api_key"; machineId?: string }) => {
     const params = new URLSearchParams();
     if (options?.mode !== undefined) params.set("mode", options.mode);

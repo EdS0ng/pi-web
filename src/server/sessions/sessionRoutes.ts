@@ -230,6 +230,15 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
     }
   });
 
+  app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/reload`, async (request, reply) => {
+    try {
+      await sessions.reload(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)));
+      return { reloaded: true };
+    } catch (error) {
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+    }
+  });
+
   app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/detach-parent`, async (request, reply) => {
     try {
       await sessions.detachParent(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)));

@@ -3,6 +3,7 @@ export type MachineStatus = "unknown" | "online" | "offline" | "error";
 
 export const PI_WEB_CAPABILITIES = {
   sessionsDeleteArchived: "sessions.deleteArchived",
+  sessionsReload: "sessions.reload",
   promptAttachments: "prompt.attachments",
 } as const;
 

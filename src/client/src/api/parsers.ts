@@ -717,6 +717,12 @@ export function parseDetached(value: unknown): { detached: true } {
   return { detached: true };
 }
 
+export function parseReloaded(value: unknown): { reloaded: true } {
+  const record = requireRecord(value);
+  if (record["reloaded"] !== true) throw new Error("Expected reloaded response");
+  return { reloaded: true };
+}
+
 function optionalNumber(record: Record<string, unknown>, key: string): number | undefined {
   const value = record[key];
   if (value === undefined) return undefined;

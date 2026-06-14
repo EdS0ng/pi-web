@@ -999,6 +999,11 @@ export class PiWebApp extends LitElement {
     return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsDeleteArchived);
   }
 
+  private canReloadSessions(): boolean {
+    const runtime = this.selectedMachineRuntime();
+    return runtime?.ok === true && supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.sessionsReload);
+  }
+
   private archivedDeleteUnavailableMessage(): string {
     const machineName = this.state.selectedMachine?.name ?? "this machine";
     return `Update and restart Pi-Web on ${machineName} to delete archived sessions.`;
@@ -1033,6 +1038,7 @@ export class PiWebApp extends LitElement {
         .selectedSession=${this.state.selectedSession}
         .canStartSession=${!!this.state.selectedWorkspace}
         .canDeleteArchivedSessions=${this.canDeleteArchivedSessions()}
+        .canReloadSessions=${this.canReloadSessions()}
         .archivedDeleteUnavailableMessage=${this.archivedDeleteUnavailableMessage()}
         .collapsible=${true}
         .compact=${this.appShell.isMobileNavigationLayout}
@@ -1060,6 +1066,7 @@ export class PiWebApp extends LitElement {
         .onDeleteArchivedSession=${(session: SessionInfo) => this.sessions.deleteArchivedSessions([session])}
         .onDeleteArchivedSessions=${(sessions: SessionInfo[]) => this.sessions.deleteArchivedSessions(sessions)}
         .onDetachParentSession=${(session: SessionInfo) => this.sessions.detachParent(session)}
+        .onReloadSession=${(session: SessionInfo) => this.sessions.reloadSession(session)}
         .onFocusNavigationTarget=${(target: NavigationFocusTarget) => { void this.focusNavigationTarget(target); }}
         .onCancelKeyboardNavigation=${() => { void this.focusChatComposer(); }}
       ></app-navigation-panel>
@@ -1391,6 +1398,7 @@ export class PiWebApp extends LitElement {
       deleteWorkspace: (workspace) => this.deleteWorkspace(workspace),
       startSession: () => this.withChatScrollTransition(() => this.sessions.startSession()),
       archiveSession: () => this.sessions.archiveSession(),
+      reloadSession: () => this.sessions.reloadSession(),
       deleteCachedNewSession: () => this.sessions.deleteCachedNewSession(),
       stopActiveWork: () => this.sessions.stopActiveWork(),
     }, createContext);

@@ -560,6 +560,15 @@ export class PiSessionService {
     await this.archiveStore.deleteArchived(record.sessionId);
   }
 
+  async reload(ref: PiSessionLookup): Promise<void> {
+    await this.assertWritable(ref);
+    const session = await this.getOrOpen(ref);
+    if (this.hasActiveWork(session)) throw new Error("Stop current session activity before reloading");
+    await this.closeActive(session.sessionId);
+    const reopened = await this.getActive(ref);
+    this.publishStatus(reopened.runtime.session);
+  }
+
   async detachParent(ref: PiSessionLookup): Promise<void> {
     const session = await this.getOrOpen(ref);
     const sessionFile = session.sessionFile;
