@@ -1391,7 +1391,10 @@ export class PiWebApp extends LitElement {
         if (!editor) return;
         if (!editor.hasFocus) editor.focus();
         const sel = editor.state.selection.main;
-        editor.dispatch({ changes: { from: sel.from, to: sel.to, insert: text } });
+        editor.dispatch({
+          changes: { from: sel.from, to: sel.to, insert: text },
+          selection: { anchor: sel.from + text.length },
+        });
       },
       getText: () => {
         return this.promptEditor?.view?.state.doc.toString() ?? "";
@@ -1440,7 +1443,10 @@ export class PiWebApp extends LitElement {
         const editor = this.promptEditor?.view;
         if (editor) {
           const sel = editor.state.selection.main;
-          editor.dispatch({ changes: { from: sel.from, to: sel.to, insert: reference } });
+          editor.dispatch({
+            changes: { from: sel.from, to: sel.to, insert: reference },
+            selection: { anchor: sel.from + reference.length },
+          });
         }
         return reference;
       },
@@ -1463,6 +1469,7 @@ export class PiWebApp extends LitElement {
         if (index === -1) return;
         editor.dispatch({
           changes: { from: index, to: index + reference.length, insert: "" },
+          selection: { anchor: index },
         });
       },
     };
