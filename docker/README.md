@@ -214,6 +214,8 @@ Restart `sessiond` manually after changes that affect `src/server/sessiond.ts`, 
 
 The dev setup intentionally has the same Docker socket and broad host mounts as the runtime setup. The same trust warnings apply.
 
+On startup, a short `data-init` service creates the shared `/data` subdirectories and gives them to `PI_WEB_UID:PI_WEB_GID`. This handles the common Flatcar/Docker case where a missing bind-mount directory is created as root by the Docker daemon.
+
 ### Sharing runtime and development state
 
 Runtime and dev mode both use `/data` inside the containers. By default they now point at the same host directory:
