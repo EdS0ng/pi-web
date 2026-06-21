@@ -388,7 +388,7 @@ cat >"$temp_env" <<EOF
 # Re-run install.sh to refresh Docker assets and update the local image.
 # Persistent data lives in PI_WEB_DOCKER_DATA_DIR and is not deleted by updates.
 
-# Host identity used for the runtime containers.
+# Host identity used for the runtime containers and image user account.
 PI_WEB_UID=$pi_web_uid
 PI_WEB_GID=$pi_web_gid
 DOCKER_GID=$docker_gid

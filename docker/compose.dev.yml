@@ -8,6 +8,8 @@ x-pi-web-dev-build: &pi-web-dev-build
     NODEJS_MAJOR: ${PI_WEB_NODEJS_MAJOR:-22}
     NODEJS_REPO: ${PI_WEB_NODEJS_REPO:-auto}
     PI_WEB_EXTRA_ZYPPER_PACKAGES: ${PI_WEB_EXTRA_ZYPPER_PACKAGES:-}
+    PI_WEB_UID: ${PI_WEB_UID:-1000}
+    PI_WEB_GID: ${PI_WEB_GID:-1000}
 
 x-pi-web-dev-environment: &pi-web-dev-environment
   HOME: /data/home

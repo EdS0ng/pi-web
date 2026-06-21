@@ -91,7 +91,7 @@ Common environment variables written to `.env`:
 
 | Variable | Purpose |
 | --- | --- |
-| `PI_WEB_UID`, `PI_WEB_GID` | user/group used by the runtime containers |
+| `PI_WEB_UID`, `PI_WEB_GID` | user/group used by the runtime containers and the image's `pi-web` account |
 | `DOCKER_GID` | extra group used for Docker socket access |
 | `PI_WEB_DOCKER_DATA_DIR` | persistent data bind mount |
 | `PI_WEB_BIND_ADDR`, `PI_WEB_PORT` | host bind address and port |
@@ -108,7 +108,7 @@ Host-derived IDs are refreshed on rerun unless you explicitly override them. Use
 
 ### Base image and tooling
 
-The Docker runtime and development images are openSUSE Tumbleweed based by default. They install Node.js 22, npm, `npx`, and Corepack through zypper, using the openSUSE Node.js build service repository when needed for the selected architecture. The image also includes common agent/development tools such as Git/Git LFS, GitHub CLI, OpenSSH, Python with pip/virtualenv and headers, native build tooling, `jq`, `ripgrep`, `fd`, `fzf`, `bat`, ShellCheck, archive tools, network utilities, and the Docker CLI.
+The Docker runtime and development images are openSUSE Tumbleweed based by default. They install Node.js 22, npm, `npx`, and Corepack through zypper, using the openSUSE Node.js build service repository when needed for the selected architecture. The image's `pi-web` account is created with `PI_WEB_UID:PI_WEB_GID`, so shells have a passwd entry instead of showing `I have no name!` when the host user is not `1000:1000`. The image also includes common agent/development tools such as Git/Git LFS, GitHub CLI, OpenSSH, Python with pip/virtualenv and headers, native build tooling, `jq`, `ripgrep`, `fd`, `fzf`, `bat`, ShellCheck, archive tools, network utilities, and the Docker CLI.
 
 Install extra distro packages without writing a hook by setting a whitespace-delimited package list:
 
@@ -266,7 +266,7 @@ Restart `sessiond` manually after changes that affect `src/server/sessiond.ts`, 
 
 The dev setup intentionally has the same Docker socket and broad host mounts as the runtime setup. The same trust warnings apply.
 
-On startup, a short `data-init` service creates the shared `/data` subdirectories and gives them to `PI_WEB_UID:PI_WEB_GID`. This handles the common Flatcar/Docker case where a missing bind-mount directory is created as root by the Docker daemon.
+On startup, a short `data-init` service creates the shared `/data` subdirectories and gives them to `PI_WEB_UID:PI_WEB_GID`. This handles the common Flatcar/Docker case where a missing bind-mount directory is created as root by the Docker daemon. Because the image also builds its `pi-web` account with those IDs, rebuild the image if you change `PI_WEB_UID` or `PI_WEB_GID`.
 
 ### Sharing runtime and development state
 
