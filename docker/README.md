@@ -16,7 +16,7 @@ By design, the runtime containers get deliberate host access so PI WEB agents ca
 - `/var/run/docker.sock` is mounted into the containers. The Docker socket is root-equivalent on the host.
 - `/srv`, `/opt`, and `/home` are mounted read/write.
 - `/` is mounted read-only at `/host` for inspection.
-- `hostexec` can start a temporary privileged helper container and run explicit commands in the host namespaces.
+- `hostexec` can start a temporary privileged helper container and run explicit commands in the host namespaces. Commands run as the container user by default, and `hostexec --root` can still run explicit administrative commands as root.
 
 Only install this on machines where the PI WEB user, the selected workspaces, and the browser/API clients are trusted. Review scripts before piping them to `sh` if you do not already trust this repository.
 
@@ -150,16 +150,16 @@ If you use a reverse proxy, keep the container bound to localhost or a private a
 
 ## `hostexec` examples
 
-`hostexec <command...>` is the only host command bridge provided by this Docker setup. It intentionally does not abstract package managers or detect distributions.
+`hostexec [--root] <command...>` is the only host command bridge provided by this Docker setup. It intentionally does not abstract package managers or detect distributions. By default, commands run as the same numeric user/group as the PI WEB container. Use `--root` only for administrative host commands.
 
 Run it from a PI WEB session, a PI WEB terminal, or by execing into the runtime container:
 
 ```bash
 hostexec uname -a
 hostexec systemctl status docker
-hostexec zypper refresh
-hostexec sh -lc 'zypper refresh && zypper dup -y'
-hostexec apt-get update
+hostexec --root zypper refresh
+hostexec --root sh -lc 'zypper refresh && zypper dup -y'
+hostexec --root apt-get update
 ```
 
 From the host shell, for a quick smoke test:
@@ -169,7 +169,7 @@ cd ~/.local/share/pi-web-docker
 docker compose exec web hostexec uname -a
 ```
 
-`hostexec` starts a temporary privileged helper container through the mounted Docker socket, enters the host namespaces with `nsenter`, and runs exactly the command you passed. Treat it like running a privileged host command.
+`hostexec` starts a temporary privileged helper container through the mounted Docker socket, enters the host namespaces with `nsenter`, and runs exactly the command you passed. Treat it like privileged host access even when the final command drops back to the container user.
 
 ## Development Docker setup
 
