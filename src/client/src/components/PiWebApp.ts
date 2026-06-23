@@ -152,6 +152,7 @@ export class PiWebApp extends LitElement {
   private readonly handledWorkspaceDeletionRunIds = new Set<string>();
   private readonly terminalCommandRunRuntimes = new Map<string, TerminalCommandRunsInternalRuntime>();
   private machineNavigationRestoreSeq = 0;
+  private navigationSelectionSeq = 0;
   private routeRestoreSeq = 0;
   private routeRestoreDepth = 0;
   private restoringRouteTerminalId: string | undefined;
@@ -575,12 +576,16 @@ export class PiWebApp extends LitElement {
     if (tool === "core:workspace.git") await this.git.refreshGit();
   }
 
-  private async withChatScrollTransition(action: () => Promise<void>) {
+  private async withChatScrollTransition(action: () => Promise<void>, shouldComplete: () => boolean = () => true) {
     this.chatView?.saveScrollPosition();
     await action();
+    if (!shouldComplete()) return;
     await this.updateComplete;
+    if (!shouldComplete()) return;
     await this.chatView?.updateComplete;
+    if (!shouldComplete()) return;
     await nextFrame();
+    if (!shouldComplete()) return;
     this.chatView?.restoreScrollPosition();
     if (this.shouldAutoFocusPrompt()) this.promptEditor?.focusInput();
   }
@@ -1086,10 +1091,15 @@ export class PiWebApp extends LitElement {
   }
 
   private async selectNavigationItem(section: NavigationSection, nextTarget: NavigationFocusTarget, action: () => Promise<void>): Promise<void> {
+    const seq = ++this.navigationSelectionSeq;
+    const isCurrentSelection = () => seq === this.navigationSelectionSeq;
+
     await this.withChatScrollTransition(async () => {
       this.navigationSections.advanceAfterSelection(section);
       await action();
-    });
+    }, isCurrentSelection);
+
+    if (!isCurrentSelection()) return;
     await this.focusNavigationTarget(nextTarget);
   }
 
