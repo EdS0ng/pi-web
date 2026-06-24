@@ -138,6 +138,7 @@ export interface QualifiedPluginAction extends AppAction {
 }
 
 export interface WorkspacePanelContext extends WorkspaceContext {
+  prompt: PluginPromptEditor;
   terminal: WorkspacePanelTerminal;
   /**
    * @deprecated Runtime-only compatibility alias for pre-v2 plugins. Use `terminal.open()` instead.

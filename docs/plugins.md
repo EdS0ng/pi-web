@@ -467,7 +467,7 @@ Notes:
 
 ### Prompt editor API
 
-The `prompt` helper on `PluginRuntimeContext` provides stable access to the chat prompt editor:
+The `prompt` helper on `PluginRuntimeContext` and `WorkspacePanelContext` provides stable access to the chat prompt editor:
 
 | Method | Description |
 | --- | --- |
@@ -486,7 +486,7 @@ const text = context.prompt.getText();
 const selection = context.prompt.getSelection(); // { start, end, text } | null
 ```
 
-Use `focusPrompt()` on `PluginRuntimeContext` to move focus to the prompt editor.
+Use `focusPrompt()` on `PluginRuntimeContext` to move focus to the prompt editor. Workspace panels can call `context.prompt.insertText()` from explicit user interactions such as button clicks; panel contexts target the currently selected session's mounted prompt editor.
 
 #### Keyboard shortcuts
 
@@ -549,6 +549,7 @@ interface WorkspacePanelContext {
     deleteFile(path: string): Promise<DeleteWorkspaceFileResponse>;
     moveFile(fromPath: string, toPath: string, options?: MoveWorkspaceFileOptions): Promise<MoveWorkspaceFileResponse>;
   };
+  prompt: PluginPromptEditor;
   terminal: {
     open(options?: { terminalId?: string }): void;
     runCommand(input: {
@@ -566,7 +567,7 @@ interface WorkspacePanelContext {
 
 `icon` is optional and is used in the compact mobile tab bar. Prefer an SVG rendered with the `svg` helper from `PluginActivationContext`; use `currentColor` so PI WEB themes can style it. If `icon` is omitted, mobile tabs fall back to initials from the panel title, or to the full title when initials collide.
 
-`machine`, `workspace`, `files`, `terminal`, and `host` are documented as stable for panel callbacks. The `files` helper supports `readFile`, `writeFile`, `deleteFile`, and `moveFile` — see [Reading workspace files](#reading-workspace-files) and [Writing workspace files](#writing-workspace-files). Use `terminal.open()` to switch to the built-in terminal panel; pass `{ terminalId }` to deep-link to a specific terminal. Call `host.requestRender()` when async plugin-owned state changes should make PI WEB re-evaluate panel callbacks such as `badge`, `visible`, or `render`.
+`machine`, `workspace`, `files`, `prompt`, `terminal`, and `host` are documented as stable for panel callbacks. The `files` helper supports `readFile`, `writeFile`, `deleteFile`, and `moveFile` — see [Reading workspace files](#reading-workspace-files) and [Writing workspace files](#writing-workspace-files). The `prompt` helper supports panel interactions that insert workspace context into the current prompt — see [Prompt editor API](#prompt-editor-api). Use `terminal.open()` to switch to the built-in terminal panel; pass `{ terminalId }` to deep-link to a specific terminal. Call `host.requestRender()` when async plugin-owned state changes should make PI WEB re-evaluate panel callbacks such as `badge`, `visible`, or `render`.
 
 For compatibility, PI WEB still provides the old `context.openTerminal()` workspace-panel helper at runtime. It is deprecated, intentionally omitted from the public TypeScript declarations, and planned for removal in v2. Existing JavaScript plugins keep working, while typed plugins should migrate to `context.terminal.open()`.
 

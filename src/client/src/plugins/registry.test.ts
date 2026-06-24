@@ -89,6 +89,37 @@ describe("PluginRegistry", () => {
     expect(registry.getWorkspacePanels()[0]?.icon).toBeDefined();
   });
 
+  it("exposes the prompt helper to workspace panel callbacks", () => {
+    const registry = new PluginRegistry();
+    registry.register({
+      id: "example",
+      plugin: {
+        apiVersion: 1,
+        name: "Example",
+        activate: () => ({
+          contributions: {
+            workspacePanels: [
+              {
+                id: "workspace.prompt",
+                title: "Prompt",
+                render: (context) => {
+                  context.prompt.insertText("@docs/example.md");
+                  return html`<p>Prompt</p>`;
+                },
+              },
+            ],
+          },
+        }),
+      },
+    });
+    const insertText = vi.fn();
+    const context = createWorkspacePanelContext("local", { insertText, getText: vi.fn(() => ""), getSelection: vi.fn(() => null) });
+
+    registry.getWorkspacePanels()[0]?.render(context);
+
+    expect(insertText).toHaveBeenCalledWith("@docs/example.md");
+  });
+
   it("rejects duplicate ids within the same namespace", () => {
     const registry = new PluginRegistry();
 
@@ -561,13 +592,14 @@ function createWorkspaceLabelContext(machineId: string, workspace = testWorkspac
   };
 }
 
-function createWorkspacePanelContext(machineId: string): WorkspacePanelContext {
+function createWorkspacePanelContext(machineId: string, prompt: WorkspacePanelContext["prompt"] = { insertText: vi.fn(), getText: vi.fn(() => ""), getSelection: vi.fn(() => null) }): WorkspacePanelContext {
   const workspace = testWorkspace();
   return {
     machine: { id: machineId, name: machineId, kind: machineId === "local" ? "local" : "remote" },
     workspace,
     state: { ...initialAppState(), selectedMachine: testMachine(machineId) },
     files: { readFile: vi.fn(), writeFile: vi.fn(), deleteFile: vi.fn(), moveFile: vi.fn() },
+    prompt,
     terminal: { open: vi.fn(), runCommand: vi.fn() },
     host: { requestRender: vi.fn() },
     fileTree: [],

@@ -1250,6 +1250,7 @@ export class PiWebApp extends LitElement {
         workspace,
         state: this.state,
         files: this.createWorkspaceFiles(workspace, machineId),
+        prompt: this.createPromptEditor(),
         terminal: {
           open: (options) => { void this.openRuntimeTerminal(machineId, workspace, options); },
           runCommand: (input) => terminalCommandRuns.runCommand({ ...input, workspace }),

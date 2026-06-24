@@ -168,6 +168,7 @@ export interface WorkspacePanelTerminal {
 }
 
 export interface WorkspacePanelContext extends WorkspaceContext {
+  prompt: PluginPromptEditor;
   terminal: WorkspacePanelTerminal;
 }
 
