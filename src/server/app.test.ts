@@ -155,6 +155,33 @@ describe("buildApp", () => {
     expect(request).toHaveBeenCalledWith("GET", "/api/projects?active=true", undefined);
   });
 
+  it("proxies remote workspace effective upload config through the existing federated workspace route", async () => {
+    const addResponse = await app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+    const remote = addResponse.json<{ id: string }>();
+    const remoteWorkspaces = [{
+      id: "w1",
+      projectId: "p1",
+      path: "/repo",
+      label: "main",
+      isMain: true,
+      isGitRepo: false,
+      isGitWorktree: false,
+      effectiveConfig: { uploads: { defaultFolder: "remote-project-uploads" } },
+    }];
+    const request = vi.fn(() => Promise.resolve({
+      statusCode: 200,
+      headers: { "content-type": "application/json" },
+      body: Readable.from([JSON.stringify(remoteWorkspaces)]),
+    }));
+    remoteClient = fakeRemoteClient({ request });
+
+    const response = await app.inject({ method: "GET", url: `/api/machines/${remote.id}/projects/p1/workspaces` });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(remoteWorkspaces);
+    expect(request).toHaveBeenCalledWith("GET", "/api/projects/p1/workspaces", undefined);
+  });
+
   it("preserves remote file preview security headers while proxying safe response metadata", async () => {
     const addResponse = await app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
     const remote = addResponse.json<{ id: string }>();
@@ -179,6 +206,29 @@ describe("buildApp", () => {
     expect(response.headers["set-cookie"]).toBeUndefined();
     expect(response.body).toBe("<svg xmlns=\"http://www.w3.org/2000/svg\" />");
     expect(request).toHaveBeenCalledWith("GET", "/api/projects/p1/workspaces/w1/file/preview?path=diagram.svg", undefined);
+  });
+
+  it("proxies remote workspace file writes as raw request bodies", async () => {
+    const addResponse = await app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+    const remote = addResponse.json<{ id: string }>();
+    const payload = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const request = vi.fn(() => Promise.resolve({
+      statusCode: 200,
+      headers: { "content-type": "application/json" },
+      body: Readable.from([JSON.stringify({ path: "image.png", size: payload.length, modifiedAt: "now", created: true })]),
+    }));
+    remoteClient = fakeRemoteClient({ request });
+
+    const response = await app.inject({
+      method: "PUT",
+      url: `/api/machines/${remote.id}/projects/p1/workspaces/w1/file?path=${encodeURIComponent("image.png")}`,
+      payload,
+      headers: { "content-type": "application/octet-stream" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ path: "image.png", size: payload.length, modifiedAt: "now", created: true });
+    expect(request).toHaveBeenCalledWith("PUT", "/api/projects/p1/workspaces/w1/file?path=image.png", payload, { contentType: "application/octet-stream" });
   });
 
   it("proxies remote terminal command-run and continue routes", async () => {
@@ -461,6 +511,47 @@ describe("buildApp", () => {
         isMain: true,
         isGitRepo: false,
         isGitWorktree: false,
+      }),
+    ]);
+  });
+
+  it("exposes the default upload config on workspace responses", async () => {
+    const addResponse = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { name: "Upload Defaults", path: projectDir, create: true },
+    });
+    const project = addResponse.json<Project>();
+
+    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
+
+    expect(workspacesResponse.statusCode).toBe(200);
+    expect(workspacesResponse.json<Workspace[]>()).toEqual([
+      expect.objectContaining({
+        projectId: project.id,
+        effectiveConfig: { uploads: { defaultFolder: ".pi-web/uploads" } },
+      }),
+    ]);
+  });
+
+  it("lets project-local upload config override global upload config on workspace responses", async () => {
+    piWebConfig = { uploads: { defaultFolder: "global-uploads" } };
+    const addResponse = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { name: "Project Upload Defaults", path: projectDir, create: true },
+    });
+    const project = addResponse.json<Project>();
+    await mkdir(join(projectDir, ".pi-web"), { recursive: true });
+    await writeFile(join(projectDir, ".pi-web", "config.json"), `${JSON.stringify({ version: 1, uploads: { defaultFolder: "project-uploads" } }, null, 2)}\n`);
+
+    const workspacesResponse = await app.inject({ method: "GET", url: `/api/projects/${project.id}/workspaces` });
+
+    expect(workspacesResponse.statusCode).toBe(200);
+    expect(workspacesResponse.json<Workspace[]>()).toEqual([
+      expect.objectContaining({
+        projectId: project.id,
+        effectiveConfig: { uploads: { defaultFolder: "project-uploads" } },
       }),
     ]);
   });

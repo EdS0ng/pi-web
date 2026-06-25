@@ -159,9 +159,13 @@ export interface WorkspacePanelContext extends WorkspaceContext {
   activeTerminalCount: number;
   selectedTerminalId: string | undefined;
   terminalAutoStart: boolean;
+  workspaceUploadDefaultFolder: string;
   onRefreshFiles: () => void;
   onExpandDir: (path: string) => void;
   onSelectFile: (path: string) => void;
+  onStartWorkspaceUpload: (files: readonly File[], options: { destinationFolder: string; createDirs?: boolean; overwrite?: boolean; selectUploadedFile?: boolean }) => { batchId: string; done: Promise<void> } | undefined;
+  onCancelWorkspaceUpload: (batchId: string) => void;
+  onClearWorkspaceUpload: (batchId: string) => void;
   onRefreshGit: () => void;
   onSelectDiff: (path: string) => void;
   onSelectTerminal: (terminalId: string | undefined, options?: { replace?: boolean | undefined }) => void;

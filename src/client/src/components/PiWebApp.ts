@@ -1,6 +1,6 @@
 import { LitElement, html } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
-import { configApi, piWebApi, terminalsApi, workspacesApi, type Machine, type MachineHealth, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type RealtimeEvent, type SessionInfo, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
+import { configApi, effectiveWorkspaceUploadFolder, piWebApi, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type Machine, type MachineHealth, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type RealtimeEvent, type SessionInfo, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
 import type { AppAction } from "../actions";
 import { initialAppState, type AppState } from "../appState";
 import { isSessionActive } from "../../../shared/activity";
@@ -169,6 +169,7 @@ export class PiWebApp extends LitElement {
   @state() private isRefreshingApp = false;
   @state() private settingsSection: SettingsSection | undefined = readSettingsSection();
   @state() private shortcutConfig: PiWebShortcutConfig = {};
+  @state() private workspaceUploadDefaultFolder = effectiveWorkspaceUploadFolder(undefined);
   private readonly onPopState = () => void this.withChatScrollTransition(async () => {
     this.restoreSettingsRoute();
     await this.restoreRoute(false);
@@ -324,7 +325,7 @@ export class PiWebApp extends LitElement {
 
   private async loadClientConfig(): Promise<void> {
     try {
-      this.applyClientConfig((await configApi.config()).config);
+      this.applyClientConfig((await configApi.config()).effectiveConfig);
     } catch (error) {
       console.warn("Failed to load PI WEB config", error);
     }
@@ -332,6 +333,7 @@ export class PiWebApp extends LitElement {
 
   private applyClientConfig(config: PiWebConfigValues): void {
     this.shortcutConfig = config.shortcuts ?? {};
+    this.workspaceUploadDefaultFolder = effectiveWorkspaceUploadFolder(config);
   }
 
   private async refreshAppData(): Promise<void> {
@@ -1271,9 +1273,13 @@ export class PiWebApp extends LitElement {
         activeTerminalCount: this.state.activeTerminalCount,
         selectedTerminalId: this.state.selectedTerminalId,
         terminalAutoStart: this.terminalAutoStartWorkspaceId === workspace.id,
+        workspaceUploadDefaultFolder: workspaceEffectiveUploadFolder(workspace.effectiveConfig, this.workspaceUploadDefaultFolder),
         onRefreshFiles: () => { void this.files.refreshFiles(); },
         onExpandDir: (path: string) => { void this.files.expandDir(path); },
         onSelectFile: (path: string) => { void this.files.selectFile(path); },
+        onStartWorkspaceUpload: (files, options) => this.files.startWorkspaceUpload(files, options),
+        onCancelWorkspaceUpload: (batchId) => { this.files.cancelWorkspaceUpload(batchId); },
+        onClearWorkspaceUpload: (batchId) => { this.files.clearWorkspaceUpload(batchId); },
         onRefreshGit: () => { void this.git.refreshGit(); },
         onSelectDiff: (path: string) => { void this.git.selectDiff(path); },
         onSelectTerminal: (terminalId: string | undefined, options?: { replace?: boolean | undefined }) => { this.selectTerminal(terminalId, options); },

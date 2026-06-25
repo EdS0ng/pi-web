@@ -64,6 +64,7 @@ This maps naturally to real development work:
 
 - Add and list local or remote PI WEB machines from the action palette.
 - Proxy remote projects, workspaces, files, git state, sessions, and terminals through the currently opened PI WEB server.
+- Upload files from the Files panel with direct drag/drop, configurable default destinations, and per-file progress.
 - Add and list server-side projects.
 - Discover git worktrees automatically with `git worktree list --porcelain`.
 - Support non-git folders as single-workspace projects.
@@ -280,6 +281,7 @@ Common config keys:
 
 - `host` / `port` — web/API bind address. Environment overrides: `PI_WEB_HOST`, `PI_WEB_PORT` / `PORT`.
 - `pathAccess.allowedPaths` — external filesystem roots that PI WEB may list/read through the file explorer and absolute `@` path completions. Absolute paths are denied by default.
+- `uploads.defaultFolder` — workspace-relative default destination for manual Files-panel uploads. Set it globally or in `<project>/.pi-web/config.json`; the project-local value wins for that project's workspaces. Defaults to `.pi-web/uploads`.
 - `maxUploadBytes` — maximum accepted request body size. Defaults to 64 MB. Environment override: `PI_WEB_MAX_UPLOAD_BYTES`.
 - `spawnSessions` — enable the `spawn_session` tool. Defaults to `true`. Environment override: `PI_WEB_SPAWN_SESSIONS`.
 - `subsessions` — beta tracked-subsession tools (`spawn_subsession`, `list_subsessions`, `check_subsession`, `read_subsession`). Defaults to `false`, requires `spawnSessions`, and requires a session daemon restart after changes. Environment override: `PI_WEB_SUBSESSIONS`.

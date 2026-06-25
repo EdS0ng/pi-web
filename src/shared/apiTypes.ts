@@ -56,6 +56,10 @@ export interface PiWebPathAccessConfig {
   allowedPaths?: string[];
 }
 
+export interface PiWebUploadsConfig {
+  defaultFolder?: string;
+}
+
 export interface PiWebConfigValues {
   host?: string;
   port?: number;
@@ -64,6 +68,8 @@ export interface PiWebConfigValues {
   plugins?: PiWebPluginConfigMap;
   /** External filesystem roots PI WEB may expose outside a workspace. */
   pathAccess?: PiWebPathAccessConfig;
+  /** Workspace-relative defaults for manual file uploads. */
+  uploads?: PiWebUploadsConfig;
   /** Maximum accepted HTTP request body size in bytes (uploads/attachments). */
   maxUploadBytes?: number;
   /** When true, LLMs can start new sessions via the spawn_session tool. */
@@ -115,6 +121,10 @@ export interface Project {
   createdAt: string;
 }
 
+export interface WorkspaceEffectiveConfig {
+  uploads?: PiWebUploadsConfig;
+}
+
 export interface Workspace {
   id: string;
   projectId: string;
@@ -124,6 +134,8 @@ export interface Workspace {
   isMain: boolean;
   isGitRepo: boolean;
   isGitWorktree: boolean;
+  /** Workspace-effective project/global settings needed by workspace UI features. */
+  effectiveConfig?: WorkspaceEffectiveConfig;
 }
 
 export interface SessionRef {
