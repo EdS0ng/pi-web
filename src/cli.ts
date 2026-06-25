@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -1092,7 +1092,17 @@ async function main(): Promise<void> {
   else throw new Error(`Unknown command: ${command}`);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+export function isCliEntrypoint(entrypoint: string | undefined = process.argv[1], modulePath: string = fileURLToPath(import.meta.url)): boolean {
+  if (entrypoint === undefined) return false;
+  if (entrypoint === modulePath) return true;
+  try {
+    return realpathSync(entrypoint) === realpathSync(modulePath);
+  } catch {
+    return false;
+  }
+}
+
+if (isCliEntrypoint()) {
   main().catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
