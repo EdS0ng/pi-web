@@ -29,7 +29,8 @@ export class SessionEventHub {
   }
 
   publish(sessionId: string, event: SessionUiEvent): void {
-    const payload = JSON.stringify(event);
+    const payload = serializeEvent(event);
+    if (payload === undefined) return;
     for (const socket of this.socketsBySession.get(sessionId) ?? []) {
       if (socket.readyState === socket.OPEN) socket.send(payload);
     }
@@ -40,9 +41,25 @@ export class SessionEventHub {
   }
 
   publishRealtime(event: RealtimeEvent): void {
-    const payload = JSON.stringify(event);
+    const payload = serializeEvent(event);
+    if (payload === undefined) return;
     for (const socket of this.globalSockets) {
       if (socket.readyState === socket.OPEN) socket.send(payload);
     }
+  }
+}
+
+/**
+ * Serialize an event for the wire, returning `undefined` if it can't be
+ * serialized. `pi.event.data` carries arbitrary plugin-pushed payloads, so a
+ * circular reference or other non-serializable value must drop that one event
+ * rather than throw and break delivery for the whole session.
+ */
+function serializeEvent(event: RealtimeEvent | SessionUiEvent): string | undefined {
+  try {
+    return JSON.stringify(event);
+  } catch (error) {
+    console.warn("sessionEventHub: dropping non-serializable event", error);
+    return undefined;
   }
 }

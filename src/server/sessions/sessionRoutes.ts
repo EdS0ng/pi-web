@@ -177,6 +177,26 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
     }
   });
 
+  app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown; requestId?: unknown; value?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/ui/respond`, async (request, reply) => {
+    try {
+      const body = optionalRecord(request.body);
+      await sessions.respondToUiRequest(sessionLookupFromBody(request.params.sessionId, body), requireString(body, "requestId"), requireString(body, "value"));
+      return { accepted: true };
+    } catch (error) {
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown; requestId?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/ui/cancel`, async (request, reply) => {
+    try {
+      const body = optionalRecord(request.body);
+      await sessions.cancelUiRequest(sessionLookupFromBody(request.params.sessionId, body), requireString(body, "requestId"));
+      return { accepted: true };
+    } catch (error) {
+      return reply.code(mutationErrorStatus(error)).send({ error: errorMessage(error) });
+    }
+  });
+
   app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/abort`, async (request, reply) => {
     try {
       await sessions.abort(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)));

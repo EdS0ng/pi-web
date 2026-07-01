@@ -25,12 +25,14 @@ export interface SessionControllerDependencies {
   api?: typeof defaultApi;
   socket?: SessionEventSocket;
   transcripts?: ChatTranscriptStore;
+  onEvent?: (event: SessionUiEvent, isCatchup: boolean) => void;
 }
 
 export class SessionController {
   private readonly socket: SessionEventSocket;
   private readonly api: typeof defaultApi;
   private readonly transcripts: ChatTranscriptStore;
+  private readonly onEvent: ((event: SessionUiEvent, isCatchup: boolean) => void) | undefined;
   private selectionSeq = 0;
   private catchupStreamSessionId: string | undefined;
   private pendingTranscriptEvents: SessionUiEvent[] = [];
@@ -46,6 +48,7 @@ export class SessionController {
     this.socket = deps.socket ?? new SessionSocket();
     this.api = deps.api ?? defaultApi;
     this.transcripts = deps.transcripts ?? new ChatTranscriptStore();
+    this.onEvent = deps.onEvent;
   }
 
   applyGlobalEvent(event: GlobalSessionEvent): void {
@@ -264,6 +267,26 @@ export class SessionController {
 
   cancelCommand() {
     this.setState({ commandDialog: undefined });
+  }
+
+  async respondToUiRequest(requestId: string, value: string) {
+    const session = this.getState().selectedSession;
+    if (!session) return;
+    this.setState({ uiRequestDialog: undefined });
+    try {
+      await this.api.respondToUiRequest(session, requestId, value, selectedMachineId(this.getState()));
+    } catch (error) {
+      this.setState({ error: String(error) });
+    }
+  }
+
+  cancelUiRequest(requestId: string) {
+    const session = this.getState().selectedSession;
+    this.setState({ uiRequestDialog: undefined });
+    if (!session) return;
+    void this.api.cancelUiRequest(session, requestId, selectedMachineId(this.getState())).catch((error: unknown) => {
+      this.setState({ error: String(error) });
+    });
   }
 
   applySessionStatus(status: SessionStatus): void {
@@ -633,10 +656,20 @@ export class SessionController {
   }
 
   private applyEvent(event: SessionUiEvent) {
+    // Fork seam (Layer 1): raw, unfiltered tap of the single event funnel —
+    // fires before rAF batching so plugin listeners see the complete stream,
+    // including `pi.event`. `isCatchup` flags reconnect-replay events the UI is
+    // suppressing as already-seen, so stateful listeners can skip them instead
+    // of double-counting. Strictly read-only; the existing dispatch below is
+    // untouched.
     const selectedSessionId = this.getState().selectedSession?.id;
-    if (this.catchupStreamSessionId !== undefined && this.catchupStreamSessionId === selectedSessionId) {
+    const catchupSessionId = this.catchupStreamSessionId !== undefined && this.catchupStreamSessionId === selectedSessionId
+      ? this.catchupStreamSessionId
+      : undefined;
+    this.onEvent?.(event, catchupSessionId !== undefined);
+    if (catchupSessionId !== undefined) {
       if (event.type === "message.end" || event.type === "agent.end") {
-        this.finishStreamCatchup(this.catchupStreamSessionId);
+        this.finishStreamCatchup(catchupSessionId);
         return;
       }
       if (isTranscriptEvent(event)) return;

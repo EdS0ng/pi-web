@@ -82,6 +82,28 @@ describe("session API compatibility", () => {
     expect(url).toBe("/api/machines/remote%20a/sessions/s%201/prompt");
     expect(JSON.parse(requestBody(init))).toEqual({ cwd: "/repo", text: "hello" });
   });
+
+  it("posts UI request responses with cwd context", async () => {
+    const fetchMock = stubJsonFetch({ accepted: true });
+
+    await sessionsApi.respondToUiRequest({ id: "s 1", cwd: "/repo" }, "req 1", "choice a", "remote a");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchCall(fetchMock, 0);
+    expect(url).toBe("/api/machines/remote%20a/sessions/s%201/ui/respond");
+    expect(JSON.parse(requestBody(init))).toEqual({ cwd: "/repo", requestId: "req 1", value: "choice a" });
+  });
+
+  it("posts UI request cancellations", async () => {
+    const fetchMock = stubJsonFetch({ accepted: true });
+
+    await sessionsApi.cancelUiRequest("s 1", "req 1", "remote a");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchCall(fetchMock, 0);
+    expect(url).toBe("/api/machines/remote%20a/sessions/s%201/ui/cancel");
+    expect(JSON.parse(requestBody(init))).toEqual({ requestId: "req 1" });
+  });
 });
 
 describe("machine-scoped file suggestion API", () => {

@@ -59,6 +59,8 @@ describe("federated route contract", () => {
       ignoreParseFailure(sessionsApi.shell(session, "ls", machineId)),
       ignoreParseFailure(sessionsApi.runCommand(session, "/help", machineId)),
       ignoreParseFailure(sessionsApi.respondToCommand(session, "req 1", "yes", machineId)),
+      ignoreParseFailure(sessionsApi.respondToUiRequest(session, "req 1", "yes", machineId)),
+      ignoreParseFailure(sessionsApi.cancelUiRequest(session, "req 1", machineId)),
       ignoreParseFailure(sessionsApi.abort(session, machineId)),
       ignoreParseFailure(sessionsApi.stop(session, machineId)),
       ignoreParseFailure(sessionsApi.archive(session, machineId)),

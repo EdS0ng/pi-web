@@ -12,8 +12,10 @@ import {
   SessionManager,
   type CreateAgentSessionRuntimeFactory,
   type EditToolDetails,
+  type ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
 import type { ClientArchiveSessionsResponse, ClientCommand, ClientCommandResult, ClientMessagePage, ClientSession, ClientSessionModel, ClientSessionRef, ClientSessionStatus, ClientThinkingLevel, SessionUiEvent } from "../types.js";
+import { WebExtensionUiService } from "./webExtensionUiService.js";
 import { pageMessagesAtSafeBoundary } from "./messagePaging.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import { BUILTIN_COMMANDS } from "./builtinCommands.js";
@@ -168,8 +170,17 @@ interface PiExtensionError {
   stack?: string;
 }
 
+// Mirrors the SDK's `ExtensionMode` union, which is not re-exported from the
+// package root. We only ever pass "rpc" (the headless host mode that gates
+// dialog UI on), but the field stays widened to match `bindExtensions`.
+type ExtensionMode = "tui" | "rpc" | "json" | "print";
+
 interface PiExtensionBindings {
   onError?: (error: PiExtensionError) => void;
+  // Only re-widens pi-web's narrowed view of the SDK; the underlying
+  // `AgentSession.bindExtensions` already accepts both of these.
+  uiContext?: ExtensionUIContext;
+  mode?: ExtensionMode;
 }
 
 export interface PiAgentSession {
@@ -305,6 +316,7 @@ export class PiSessionService {
   private readonly activities = new Map<string, { phase: "active" | "idle" | "error"; label: string; detail?: string; at: string }>();
   private readonly heartbeat: NodeJS.Timeout;
   private readonly commandService: SessionCommandService<PiAgentSession>;
+  private readonly webUi: WebExtensionUiService;
   private readonly compactionPromptQueues = new Map<string, QueuedPrompt[]>();
   private readonly compactionDrainTimers = new Map<string, NodeJS.Timeout>();
   private readonly authLossWarnings = new Set<string>();
@@ -355,6 +367,7 @@ export class PiSessionService {
     );
     this.createAgentRuntime = deps.createAgentRuntime ?? defaultCreateAgentRuntime;
     this.workspaceActivity = deps.workspaceActivity;
+    this.webUi = new WebExtensionUiService(this.events);
     this.heartbeat = setInterval(() => { this.publishHeartbeats(); }, deps.heartbeatIntervalMs ?? 2000);
     this.commandService = new SessionCommandService(
       (sessionId) => this.getActive(sessionId),
@@ -394,6 +407,7 @@ export class PiSessionService {
     await Promise.all(activeSessions.map(async (active) => {
       active.unsubscribe();
       this.workspaceActivity?.removeSession(active.runtime.session.sessionId, active.runtime.session.sessionManager.getCwd());
+      this.webUi.rejectPendingForSession(active.runtime.session.sessionId);
       await active.runtime.session.abort();
       await active.runtime.dispose();
     }));
@@ -1011,6 +1025,17 @@ export class PiSessionService {
     return this.commandService.respond(active.runtime.session.sessionId, requestId, value);
   }
 
+  async respondToUiRequest(ref: PiSessionLookup, requestId: string, value: string): Promise<void> {
+    await this.assertWritable(ref);
+    const active = await this.getActive(ref);
+    this.webUi.respond(active.runtime.session.sessionId, requestId, value);
+  }
+
+  async cancelUiRequest(ref: PiSessionLookup, requestId: string): Promise<void> {
+    const active = await this.getActive(ref);
+    this.webUi.cancel(active.runtime.session.sessionId, requestId);
+  }
+
   async archive(ref: PiSessionLookup): Promise<void> {
     const session = await this.getOrOpen(ref);
     if (this.hasActiveWork(session)) throw new Error("Stop current session activity before archiving");
@@ -1180,6 +1205,9 @@ export class PiSessionService {
     this.active.delete(sessionId);
     this.activities.delete(sessionId);
     this.workspaceActivity?.removeSession(sessionId, active.runtime.session.sessionManager.getCwd());
+    // Resolve any open agent→user questions to undefined so an extension awaiting
+    // ctx.ui.select doesn't hang while the session is torn down.
+    this.webUi.rejectPendingForSession(sessionId);
     this.clearAuthLossWarningsForSession(sessionId);
     this.clearCompactionPromptQueue(sessionId);
     // Disarm subsession notification before teardown so the abort below cannot
@@ -1252,6 +1280,11 @@ export class PiSessionService {
 
   private async bindSessionExtensions(session: PiAgentSession): Promise<void> {
     await session.bindExtensions({
+      // rpc is the headless host mode; it (with tui) is what gates dialog-capable
+      // UI on, so extensions calling ctx.ui.select/input/confirm reach the
+      // browser-backed context below instead of the SDK's no-op fallback.
+      uiContext: this.webUi.contextFor(session.sessionId),
+      mode: "rpc",
       onError: (error) => {
         const message = `${error.extensionPath}: ${error.error}`;
         this.publishActivity(session, "extension error", "error", message);
@@ -1916,7 +1949,9 @@ function toClientEvent(event: unknown): SessionUiEvent {
     const message = getProperty(event, "message");
     return message === undefined ? { type: "message.end" } : { type: "message.end", message };
   }
-  return { type: "pi.event", eventType: eventType ?? "unknown" };
+  // Preserve the full original event as the `pi.event` payload so the agent can
+  // push arbitrary structured data to browser plugins via the Layer-1 listener tap.
+  return { type: "pi.event", eventType: eventType ?? "unknown", data: event };
 }
 
 function summarizeToolArgs(args: unknown): string {

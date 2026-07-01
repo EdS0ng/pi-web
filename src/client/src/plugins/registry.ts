@@ -1,5 +1,15 @@
 import { html, svg } from "lit";
-import type { PiWebPluginRegistration, PluginAction, PluginRuntimeContext, QualifiedContributionId, QualifiedPluginAction, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspaceLabelContribution, QualifiedWorkspacePanelContribution, ThemeContribution, ThemePairContribution, WorkspaceLabelContext, WorkspaceLabelContribution, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePanelContribution } from "./types";
+import type { PiWebPluginRegistration, PluginAction, PluginContributions, PluginRuntimeContext, QualifiedContributionId, QualifiedPluginAction, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspaceLabelContribution, QualifiedWorkspacePanelContribution, ThemeContribution, ThemePairContribution, WorkspaceLabelContext, WorkspaceLabelContribution, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePanelContribution } from "./types";
+
+/**
+ * One generic seam through which fork-owned code collects additional, declaration-merged
+ * contribution kinds during plugin registration without further edits to this upstream
+ * file. Each extension is invoked once per registered plugin with its full contribution
+ * set. See `plugins/fork/registryExtensions.ts`.
+ */
+export interface RegistryExtension {
+  collect(pluginId: string, contributions: PluginContributions, registration: PiWebPluginRegistration): void;
+}
 
 const idPattern = /^[a-z][a-z0-9.-]*$/u;
 const localIdPattern = /^[a-z][a-z0-9.-]*$/u;
@@ -26,6 +36,8 @@ export class PluginRegistry {
   private readonly remoteMachineSpecificPluginIds = new Map<string, Set<string>>();
   private readonly contributionIds = new Set<QualifiedContributionId>();
 
+  constructor(private readonly extensions: RegistryExtension[] = []) {}
+
   register(registration: PiWebPluginRegistration): void {
     const { id, plugin } = registration;
     this.validatePluginId(id);
@@ -49,6 +61,7 @@ export class PluginRegistry {
     } else if (registration.sourcePluginId !== undefined && machineSpecific) {
       addMappedSetValue(this.remoteMachineSpecificPluginIds, registration.sourcePluginId, registration.machineId);
     }
+    for (const extension of this.extensions) extension.collect(id, contributions, registration);
   }
 
   shouldLoadRemotePlugin(sourcePluginId: string, machineSpecific = false): boolean {

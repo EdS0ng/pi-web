@@ -1,4 +1,4 @@
-import { LitElement, html } from "lit";
+import { LitElement, html, type TemplateResult } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
 import { configApi, effectiveWorkspaceUploadFolder, piWebApi, terminalsApi, workspacesApi, workspaceEffectiveUploadFolder, type Machine, type MachineHealth, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type RealtimeEvent, type SessionInfo, type TerminalCommandRun, type TerminalUiEvent, type Workspace } from "../api";
 import type { AppAction } from "../actions";
@@ -19,13 +19,17 @@ import { SessionStorageTerminalSelectionMemory } from "../controllers/terminalSe
 import { SessionStorageWorkspaceSelectionMemory } from "../controllers/workspaceSelection";
 import { KeyboardShortcutDispatcher } from "../keyboardShortcuts";
 import { selectedMachineId } from "../controllers/types";
-import { RealtimeSocket } from "../sessionSocket";
+import { RealtimeSocket, type SessionUiEvent } from "../sessionSocket";
 import type { PiWebPluginRegistration, PluginMachine, PluginPromptEditor, QualifiedContributionId, QualifiedThemeContribution, QualifiedThemePairContribution, QualifiedWorkspacePanelContribution, PluginRuntimeContext, TerminalCommandRunsInternalRuntime, WorkspaceFiles, WorkspaceHost, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext } from "../plugins/types";
 import { CLASSIC_THEME_ID, DEFAULT_THEME_PREFERENCE, applyPiWebTheme, findThemePairForTheme, readStoredThemePreference, resolveThemePreference, writeStoredThemePreference, type ThemePreference, type ThemePreferenceResolution } from "../theme";
 import { corePlugin } from "../plugins/core";
 import { themePackPlugin } from "../plugins/themes";
 import { loadExternalPlugins } from "../plugins/external";
-import { PluginRegistry, installPluginRuntimeScope, installWorkspacePanelScope } from "../plugins/registry";
+import { PluginRegistry, installPluginRuntimeScope, installWorkspacePanelScope, type RegistryExtension } from "../plugins/registry";
+import { createForkRegistry } from "../plugins/fork/registryExtensions";
+import { dispatchSessionEvent } from "../plugins/fork/sessionEvents";
+import { reduceForkUiEvent } from "../plugins/fork/uiRequests";
+import type { RegionWidgetContext } from "../plugins/fork/contributions";
 import { queryNamespace, readNamespacedString, setNamespacedQueryKey } from "../namespacedQueryArgs";
 import { AppShellController } from "../appShell/appShellController";
 import { NavigationSectionsController, type NavigationSection } from "../appShell/navigationState";
@@ -60,7 +64,14 @@ import type { AppMobileMainTab, AppMobileMainTabIcon } from "./appShell/AppMobil
 import { shouldShowMachinesSection, type AppNavigationPanel, type NavigationFocusTarget } from "./appShell/AppNavigationPanel";
 import "./appShell/AppPanelEdgeControl";
 import "./appShell/AppRefreshControl";
+import "./fork/RegionHost";
+import "./fork/PageHost";
+import "./fork/UiRequestDialog";
+import { FORK_CONVERSATION, FORK_NAVIGATION } from "../pagedefs/builtinWidgets";
+import { FORK_FOCUS_PAGE_ID } from "../pagedefs/defaultPages";
+import type { WidgetPlacement } from "../pagedefs/types";
 import { appStyles } from "./shared";
+import { forkStyles } from "../styles/fork";
 
 
 const PI_WEB_STATUS_REFRESH_MS = 15 * 60 * 1000;
@@ -91,6 +102,7 @@ export class PiWebApp extends LitElement {
     (patch) => { this.setState(patch); },
     () => { this.updateUrl(); },
     new SessionStorageSessionSelectionMemory(),
+    { onEvent: (event, isCatchup) => { this.dispatchPluginEvent(event, isCatchup); } },
   );
   private readonly activity = new ActivityController(
     () => this.state,
@@ -160,7 +172,10 @@ export class PiWebApp extends LitElement {
   private remoteRouteRestoreTimer: number | undefined;
   private remoteRouteRestoreAttempt = 0;
   private remoteRouteRestoreInProgress = false;
-  private readonly plugins = createPluginRegistry();
+  private readonly forkRegistry = createForkRegistry();
+  private readonly plugins = createPluginRegistry([this.forkRegistry]);
+  /** Layer 3 — the `mainView` to restore when toggling a fork page back to the shell. */
+  private viewBeforeForkPage: AppState["mainView"] | undefined;
   private readonly loadedMachinePluginIds = new Set<string>();
   private readonly machinePluginLoadPromises = new Map<string, Promise<void>>();
   private gatewayPluginLoadPromise: Promise<void> | undefined;
@@ -1288,12 +1303,107 @@ export class PiWebApp extends LitElement {
     return createContext("core");
   }
 
+  // --- Fork seams ------------------------------------------------------------
+  // All substantive fork logic lives in `plugins/fork/` and `components/fork/`;
+  // these thin methods are the only PiWebApp wiring, kept as 1–3 line wraps or
+  // new private methods so the merge surface against upstream stays minimal.
+
+  private dispatchPluginEvent(event: SessionUiEvent, isCatchup: boolean): void {
+    dispatchSessionEvent(this.forkRegistry, event, this.state, isCatchup);
+    const effect = reduceForkUiEvent(event, isCatchup, this.state.uiRequestDialog);
+    if (effect === undefined) return;
+    if (effect.type === "setDialog") this.setState({ uiRequestDialog: effect.dialog });
+    // No dedicated toast surface exists yet; route the fire-and-forget notice to
+    // the shared global error banner (the only always-visible ephemeral surface).
+    else this.setState({ error: effect.payload.message });
+  }
+
+  private createRegionWidgetContext(): RegionWidgetContext {
+    const workspace = this.state.selectedWorkspace;
+    return {
+      state: this.state,
+      workspace,
+      workspacePanelContext: workspace === undefined ? undefined : this.createWorkspacePanelContext(workspace),
+    };
+  }
+
+  /**
+   * Selects a main-column region widget. Sets `mainView` directly — unlike
+   * `selectMainView`, which would route a non-`navigation`/`chat` id into
+   * `openWorkspaceTool` and clobber the unrelated workspace-tool selection.
+   */
+  private selectMainViewWidget(id: QualifiedContributionId): void {
+    this.setState({ mainView: id });
+    this.updateUrl();
+    this.git.updatePolling();
+  }
+
+  private renderForkMainRegion(state: AppState, getContext: () => RegionWidgetContext): TemplateResult | undefined {
+    const widgets = this.forkRegistry.getMainViewWidgets();
+    if (widgets.length === 0) return undefined;
+    const context = getContext();
+    const visible = widgets.filter((widget) => widget.visible?.(context) ?? true);
+    const active = visible.find((widget) => widget.id === state.mainView);
+    if (active === undefined) return undefined;
+    return html`
+      <region-host
+        .widgets=${visible}
+        .active=${active.id}
+        .context=${context}
+        .onSelect=${(id: QualifiedContributionId) => { this.selectMainViewWidget(id); }}
+      ></region-host>
+    `;
+  }
+
+  private renderForkNavRegion(getContext: () => RegionWidgetContext): TemplateResult | undefined {
+    if (this.appShell.isMobileNavigationLayout) return undefined;
+    const widgets = this.forkRegistry.getNavWidgets();
+    if (widgets.length === 0) return undefined;
+    const context = getContext();
+    const visible = widgets.filter((widget) => widget.visible?.(context) ?? true);
+    if (visible.length === 0) return undefined;
+    return html`<region-host class="fork-nav-region" .widgets=${visible} .context=${context}></region-host>`;
+  }
+
   private getActions(): AppAction[] {
     return applyActiveShortcutPreferences(this.getDefaultActions(), this.shortcutConfig);
   }
 
   private getDefaultActions(): AppAction[] {
-    return [...this.plugins.getActions(this.createPluginRuntimeContext()), ...this.navigationFocusActions(), ...this.panelLayoutActions()];
+    return [...this.plugins.getActions(this.createPluginRuntimeContext()), ...this.navigationFocusActions(), ...this.panelLayoutActions(), ...this.forkPageActions()];
+  }
+
+  private forkPageActions(): AppAction[] {
+    const onFocusPage = this.state.mainView === FORK_FOCUS_PAGE_ID;
+    return [
+      {
+        id: "fork.page.toggle-focus",
+        title: onFocusPage ? "Back to Shell" : "Open Focused Conversation",
+        description: onFocusPage ? "Return to the default workspace shell" : "Open the focused full-viewport conversation page",
+        group: "View",
+        run: () => { this.toggleForkPage(FORK_FOCUS_PAGE_ID); },
+      },
+    ];
+  }
+
+  /**
+   * Toggles a full-viewport fork page on/off. Sets `mainView` directly (rather
+   * than via `selectMainView`/`openWorkspaceTool`) so the workspace-tool
+   * selection is preserved and restored byte-identically when returning to the
+   * shell. `updateUrl` writes `?view=<pageId>`; the routed `selectedSession`
+   * keeps the page deep-linkable for free.
+   */
+  private toggleForkPage(pageId: QualifiedContributionId): void {
+    if (this.state.mainView === pageId) {
+      const restore = this.viewBeforeForkPage ?? this.defaultRouteView();
+      this.viewBeforeForkPage = undefined;
+      this.setState({ mainView: restore });
+    } else {
+      this.viewBeforeForkPage = this.state.mainView;
+      this.setState({ mainView: pageId });
+    }
+    this.updateUrl();
+    this.git.updatePolling();
   }
 
   private panelLayoutActions(): AppAction[] {
@@ -1793,16 +1903,37 @@ export class PiWebApp extends LitElement {
 
   override render() {
     const state = this.state;
+    return this.renderActivePage(state) ?? this.renderDefaultShell(state);
+  }
+
+  private renderActivePage(state: AppState): TemplateResult | undefined {
+    const page = this.forkRegistry.getPages().find((candidate) => candidate.id === state.mainView);
+    if (page === undefined) return undefined;
+    const ctx = this.createRegionWidgetContext();
+    // A page replaces the whole shell, so it must carry the generic error banner
+    // and — on touch, where the keyboard toggle is unreachable — an exit control.
     return html`
-      <div class=${this.panelCollapse.shellClass(state.mainView)} style=${this.panelResize.shellStyle({ navigation: this.resizablePanelConstraints("navigation"), workspace: this.resizablePanelConstraints("workspace") })}>
-        <aside id="navigation-panel">${this.appShell.isMobileNavigationLayout ? null : this.renderNavigationPanel()}</aside>
-        ${this.renderNavigationPanelEdgeControl()}
-        <main class=${mainViewClass(state.mainView)}>
-          ${this.renderContextBar()}
-          ${this.renderMobileMainTabs()}
-          ${state.error ? html`<div class="error">${state.error}</div>` : null}
-          <div class="mobile-navigation-panel">${this.appShell.isMobileNavigationLayout ? this.renderNavigationPanel() : null}</div>
-          ${state.selectedSession ? html`
+      <div class="fork-page">
+        ${this.renderErrorBanner(state)}
+        <page-host .layout=${page.layout} .placements=${page.widgets} .renderWidget=${(placement: WidgetPlacement) => this.renderPageWidget(placement.widget, ctx)}></page-host>
+        ${this.appShell.isMobileNavigationLayout ? html`<button class="fork-page-exit" type="button" aria-label="Back to shell" @click=${() => { this.toggleForkPage(page.id); }}>✕</button>` : null}
+      </div>
+    `;
+  }
+
+  private renderErrorBanner(state: AppState): TemplateResult | null {
+    return state.error ? html`<div class="error">${state.error}</div>` : null;
+  }
+
+  private renderPageWidget(id: QualifiedContributionId, ctx: RegionWidgetContext): TemplateResult {
+    if (id === FORK_CONVERSATION) return this.renderConversation(this.state);
+    if (id === FORK_NAVIGATION) return this.renderNavigationPanel();
+    const widget = this.forkRegistry.findRegionWidget(id);
+    return widget ? widget.render(ctx) : html``;
+  }
+
+  private renderConversation(state: AppState): TemplateResult {
+    return state.selectedSession ? html`
             <chat-view .sessionId=${state.selectedSession.id} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isReceivingPartialStream=${state.isReceivingPartialStream} .isSendingPrompt=${state.sendingPrompts[state.selectedSession.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .status=${state.status} .activity=${state.activity} .onLoadMore=${() => this.withChatPrependTransition(() => this.sessions.loadEarlierMessages())}></chat-view>
             <prompt-editor .sessionId=${state.selectedSession.id} .cwd=${state.selectedWorkspace?.path} .machineId=${selectedMachineId(state)} .projectId=${state.selectedWorkspace?.projectId} .workspaceId=${state.selectedWorkspace?.id} .workspaceScopedFileSuggestions=${this.supportsWorkspaceFileSuggestions()} .disabled=${state.selectedSession.archived === true} .canSteer=${state.status?.isStreaming === true} .isCompacting=${state.status?.isCompacting === true} .canStop=${state.status?.isStreaming === true || state.status?.isBashRunning === true || state.status?.isCompacting === true || (state.status?.pendingMessageCount ?? 0) > 0} .status=${state.status} .availableThinkingLevels=${state.availableThinkingLevels} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .onSend=${(text: string, streamingBehavior?: "steer" | "followUp", attachments?: import("../api").PromptAttachment[], delivery?: import("../../../shared/apiTypes").PromptAttachmentDelivery) => { this.sendPrompt(text, streamingBehavior, attachments, delivery); }} .onStop=${() => this.sessions.stopActiveWork()} .onSelectModel=${() => { void this.openModelDialog(); }} .onSelectThinking=${() => { void this.openThinkingDialog(); }}></prompt-editor>
             <status-bar .status=${state.status}></status-bar>
@@ -1810,7 +1941,29 @@ export class PiWebApp extends LitElement {
             ${state.modelDialog !== undefined ? html`<command-picker title=${state.modelDialog.title} .searchable=${true} .options=${state.modelDialog.options} .selectedValue=${state.modelDialog.selectedValue} .onPick=${(value: string) => { void this.pickModel(value); }} .onCancel=${() => { this.setState({ modelDialog: undefined }); }}></command-picker>` : null}
             ${state.thinkingDialog !== undefined ? html`<command-picker title=${state.thinkingDialog.title} .options=${state.thinkingDialog.options} .selectedValue=${state.thinkingDialog.selectedValue} .onPick=${(value: string) => { void this.pickThinking(value); }} .onCancel=${() => { this.setState({ thinkingDialog: undefined }); }}></command-picker>` : null}
             ${state.authDialog !== undefined ? html`<auth-dialog .state=${state.authDialog} .onChooseMethod=${(authType: "oauth" | "api_key") => { void this.auth.chooseLoginMethod(authType); }} .onSelectProvider=${(providerId: string, authType: "oauth" | "api_key") => { void this.auth.selectLoginProvider(providerId, authType); }} .onApiKeyInput=${(value: string) => { this.auth.updateApiKey(value); }} .onSaveApiKey=${() => { void this.auth.saveApiKey(); }} .onLogoutProvider=${(providerId: string) => { void this.auth.logoutProvider(providerId); }} .onOAuthInput=${(value: string) => { this.auth.updateOAuthInput(value); }} .onOAuthRespond=${(value?: string) => { void this.auth.respondOAuth(value); }} .onOAuthCancel=${() => { void this.auth.cancelOAuth(); }} .onCancel=${() => { this.auth.closeDialog(); }}></auth-dialog>` : null}
-          ` : html`<div class="empty">${this.sessionEmptyMessage()}</div>`}
+          ` : html`<div class="empty">${this.sessionEmptyMessage()}</div>`;
+  }
+
+  private renderDefaultShell(state: AppState): TemplateResult {
+    // Build the region-widget context at most once per render, and only if a
+    // fork region actually needs it (the common, no-fork-widget case pays
+    // nothing). createWorkspacePanelContext is expensive, so the two region
+    // renderers share this memoized provider rather than each building their own.
+    let regionContext: RegionWidgetContext | undefined;
+    const getRegionContext = (): RegionWidgetContext => (regionContext ??= this.createRegionWidgetContext());
+    return html`
+      <div class=${this.panelCollapse.shellClass(state.mainView)} style=${this.panelResize.shellStyle({ navigation: this.resizablePanelConstraints("navigation"), workspace: this.resizablePanelConstraints("workspace") })}>
+        <aside id="navigation-panel">
+          ${this.appShell.isMobileNavigationLayout ? null : this.renderNavigationPanel()}
+          ${this.renderForkNavRegion(getRegionContext)}
+        </aside>
+        ${this.renderNavigationPanelEdgeControl()}
+        <main class=${mainViewClass(state.mainView)}>
+          ${this.renderContextBar()}
+          ${this.renderMobileMainTabs()}
+          ${this.renderErrorBanner(state)}
+          <div class="mobile-navigation-panel">${this.appShell.isMobileNavigationLayout ? this.renderNavigationPanel() : null}</div>
+          ${this.renderForkMainRegion(state, getRegionContext) ?? this.renderConversation(state)}
         </main>
         ${this.renderWorkspacePanelEdgeControl()}
         ${this.renderWorkspacePanel()}
@@ -1818,16 +1971,17 @@ export class PiWebApp extends LitElement {
         ${state.projectDialogOpen ? html`<project-dialog .machineId=${selectedMachineId(state)} .onSubmit=${(path: string, create: boolean) => this.projects.addProject(path, create)} .onCancel=${() => { this.setState({ projectDialogOpen: false }); }}></project-dialog>` : null}
         ${state.machineDialogOpen ? html`<machine-dialog .error=${state.error} .onSubmit=${(input: MachineDialogSubmit) => this.submitMachineDialog(input)} .onCancel=${() => { this.setState({ machineDialogOpen: false }); }}></machine-dialog>` : null}
         ${state.themeDialog !== undefined ? html`<command-picker title=${state.themeDialog.title} .options=${state.themeDialog.options} .selectedValue=${state.themeDialog.selectedValue} .onPick=${(value: string) => { this.pickTheme(value); }} .onCancel=${() => { this.setState({ themeDialog: undefined }); }}></command-picker>` : null}
+        ${state.uiRequestDialog !== undefined ? html`<fork-ui-request-dialog .request=${state.uiRequestDialog} .onRespond=${(value: string) => { void this.sessions.respondToUiRequest(state.uiRequestDialog?.requestId ?? "", value); }} .onCancel=${() => { this.sessions.cancelUiRequest(state.uiRequestDialog?.requestId ?? ""); }}></fork-ui-request-dialog>` : null}
         ${this.settingsSection !== undefined ? html`<settings-dialog .section=${this.settingsSection} .actions=${this.getDefaultActions()} .onNavigate=${(section: SettingsSection) => { this.navigateSettings(section); }} .onClose=${() => { this.closeSettings(); }} .onConfigSaved=${(config: PiWebConfigValues) => { this.applyClientConfig(config); }}></settings-dialog>` : null}
       </div>
     `;
   }
 
-  static override styles = appStyles;
+  static override styles = [appStyles, forkStyles];
 }
 
-function createPluginRegistry(): PluginRegistry {
-  const registry = new PluginRegistry();
+function createPluginRegistry(extensions: RegistryExtension[] = []): PluginRegistry {
+  const registry = new PluginRegistry(extensions);
   registry.register({ id: "core", plugin: corePlugin });
   registry.register({ id: "themes", plugin: themePackPlugin });
   return registry;
