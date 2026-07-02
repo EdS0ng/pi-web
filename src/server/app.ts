@@ -19,6 +19,7 @@ import { registerGitRoutes } from "./gitRoutes.js";
 import { registerTerminalProxyRoutes } from "./terminalProxyRoutes.js";
 import { registerWorkspaceDeletionRoutes } from "./workspaces/workspaceDeletionRoutes.js";
 import { createFilePiWebConfigService, registerConfigRoutes, type PiWebConfigService } from "./configRoutes.js";
+import { createCodexAuthProvider, registerTranscriptionRoutes, type CodexAuthProvider } from "./transcriptionRoutes.js";
 import { PiWebPluginService } from "./piWebPluginService.js";
 import { createPiWebStatusCache } from "./piWebStatusCache.js";
 import { getPiWebRuntime, getPiWebStatus, getPiWebVersionStatus } from "./piWebStatus.js";
@@ -35,6 +36,7 @@ export interface AppDependencies {
   sessionDaemon?: SessionProxyDaemon;
   piWebPlugins?: Pick<PiWebPluginService, "manifest" | "plugins" | "readAsset">;
   config?: PiWebConfigService;
+  codexAuth?: CodexAuthProvider;
   clientDist?: string | false;
   logger?: FastifyServerOptions["logger"];
   /** Maximum accepted HTTP request body size in bytes. */
@@ -146,6 +148,8 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   app.get("/api/pi-web/runtime", async () => getPiWebRuntime(sessionDaemon));
   app.get("/api/plugins", async () => piWebPlugins.plugins());
   registerConfigRoutes(app, configService);
+  // Local-only (the token lives on this machine); not registered per machine prefix.
+  registerTranscriptionRoutes(app, { codexAuth: deps.codexAuth ?? createCodexAuthProvider() });
 
   registerMachineRoutes(app, machines);
   registerMachinePluginProxyRoutes(app, machines);

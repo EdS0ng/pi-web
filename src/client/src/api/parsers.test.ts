@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
-import { parseCommandResult, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMessagePage, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parseSessionStatus, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
+import { parseCommandResult, parseFileContentResponse, parseFileSuggestion, parseGitStatusResponse, parseMessagePage, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parseSessionStatus, parseSlashCommand, parseTerminalCommandRun, parseTerminalInfo, parseTranscriptionResponse, parseWorkspace, parseWorkspaceActivityResponse } from "./parsers";
 
 describe("API parsers", () => {
   it("parses PI WEB config responses", () => {
@@ -206,6 +206,12 @@ describe("API parsers", () => {
       createdAt: "now",
       metadata: {},
     })).toThrow("Invalid terminal command run status");
+  });
+
+  it("parses transcription responses and ignores extra fields", () => {
+    expect(parseTranscriptionResponse({ text: "hello there", asset_pointer: "sediment://x", asset_format: "webm" })).toEqual({ text: "hello there" });
+    expect(() => parseTranscriptionResponse({ asset_format: "webm" })).toThrow("Expected string field: text");
+    expect(() => parseTranscriptionResponse(null)).toThrow("Expected object response");
   });
 
   it("parses command result variants", () => {

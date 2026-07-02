@@ -39,6 +39,7 @@ import {
   parseTerminalCommandRun,
   parseTerminalInfo,
   parseThinkingLevelsResponse,
+  parseTranscriptionResponse,
   parseWriteWorkspaceFileResponse,
   parseWorkspace,
   parseWorkspaceActivityResponse,
@@ -264,6 +265,12 @@ export const gitApi = {
   gitDiff: (projectId: string, workspaceId: string, options?: { path?: string; staged?: boolean }, machineId = "local") => request(machineGitDiffUrl(machineId, projectId, workspaceId, options), parseGitDiffResponse),
 };
 
+export const transcribeApi = {
+  // Transcription is local-only (the Codex token lives on this machine), so there is
+  // no machine prefix. The audio Blob is posted as octet-stream, mirroring uploadWorkspaceFile.
+  transcribe: (audio: Blob, ext: string) => request(`/api/transcribe?ext=${encodeURIComponent(ext)}`, parseTranscriptionResponse, { method: "POST", body: audio, headers: { "Content-Type": "application/octet-stream" } }),
+};
+
 export const api = {
   ...piWebApi,
   ...machinesApi,
@@ -276,4 +283,5 @@ export const api = {
   ...terminalsApi,
   ...filesApi,
   ...gitApi,
+  ...transcribeApi,
 };

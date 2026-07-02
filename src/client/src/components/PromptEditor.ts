@@ -14,7 +14,8 @@ import { detectPromptCompletionTrigger, fileCompletionInsertText, type PromptCom
 import { clearDraft, loadDraft, saveDraft } from "../promptDraftStorage";
 import { loadAttachmentDelivery, saveAttachmentDelivery } from "../attachmentPreferences";
 import { promptEditorStyles, type CompletionItem } from "./shared";
-import { renderAttachIcon, renderSendIcon, renderQueueIcon, renderSteerIcon, renderStopIcon, renderThinkingGauge } from "./promptEditorIcons";
+import { renderAttachIcon, renderMicIcon, renderSendIcon, renderQueueIcon, renderSteerIcon, renderStopIcon, renderThinkingGauge } from "./promptEditorIcons";
+import { createRecorder, type Recorder } from "../audio/recorder";
 import { thinkingGauge, thinkingLevelLabel } from "../../../shared/thinkingLevels";
 import "./AutocompleteMenu";
 
@@ -54,6 +55,9 @@ export class PromptEditor extends LitElement {
   @state() private attachments: PendingAttachment[] = [];
   @state() private attachmentDelivery: PromptAttachmentDelivery = loadAttachmentDelivery();
   @state() private attachmentError: string | undefined = undefined;
+  @state() private recordingState: "idle" | "requesting" | "recording" | "transcribing" = "idle";
+  @state() private transcriptionError: string | undefined = undefined;
+  private recorder: Recorder | undefined;
   private attachmentSeq = 0;
   private requestVersion = 0;
   private editor: EditorView | undefined;
@@ -82,6 +86,8 @@ export class PromptEditor extends LitElement {
   }
 
   override disconnectedCallback(): void {
+    this.recorder?.cancel();
+    this.recorder = undefined;
     this.editor?.destroy();
     this.editor = undefined;
     super.disconnectedCallback();
@@ -91,7 +97,11 @@ export class PromptEditor extends LitElement {
     const inputMode = inputModeForDraft(this.draft);
     const shellMode = inputMode.kind === "shell";
     const queuesInput = this.canSteer || this.isCompacting;
-    const busy = this.disabled || this.sending;
+    const transcribing = this.recordingState === "transcribing";
+    const busy = this.disabled || this.sending || transcribing;
+    const recording = this.recordingState === "recording";
+    const micClass = `icon-button mic-button${recording ? " recording" : ""}${transcribing ? " transcribing" : ""}`;
+    const micLabel = micButtonLabel(this.recordingState);
     return html`
       <footer class=${shellMode ? "shell-mode" : ""} @paste=${(event: ClipboardEvent) => { void this.handlePaste(event); }} @dragover=${(event: DragEvent) => { this.handleDragOver(event); }} @drop=${(event: DragEvent) => { void this.handleDrop(event); }}>
         <div class="editor-wrap">
@@ -101,10 +111,12 @@ export class PromptEditor extends LitElement {
           ${shellMode ? html`<div class="mode-hint">Shell command${inputMode.excludeFromContext ? " · excluded from context" : ""}</div>` : null}
           ${this.isCompacting && !shellMode ? html`<div class="mode-hint">Compacting history · message will be queued</div>` : null}
           ${this.renderAttachments()}
+          ${this.transcriptionError !== undefined ? html`<div class="attachments" role="alert"><div class="attachment-error">${this.transcriptionError}</div></div>` : null}
           <autocomplete-menu .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
         </div>
         <div class="actions">
           ${this.renderCompactStatus()}
+          <button class=${micClass} ?disabled=${this.disabled || this.recordingState === "requesting" || transcribing} title=${micLabel} aria-label=${micLabel} @click=${() => { void this.toggleRecording(); }}>${recording ? renderStopIcon() : renderMicIcon()}</button>
           <button class="icon-button send-button" ?disabled=${busy} title=${queuesInput ? "Queue until the current activity finishes" : "Send message"} aria-label=${queuesInput ? "Queue message" : "Send message"} @click=${() => { this.send("followUp"); }}>${queuesInput ? renderQueueIcon() : renderSendIcon()}</button>
           ${this.canSteer && !this.isCompacting ? html`<button class="icon-button steer-button" ?disabled=${busy} title="Steer the current response before the next model call" aria-label="Steer current response" @click=${() => { this.send("steer"); }}>${renderSteerIcon()}</button>` : null}
           <button class="icon-button stop-button" ?disabled=${this.disabled || !this.canStop} title=${this.canStop ? "Stop current work and clear queued messages" : "Nothing running"} aria-label="Stop current work" @click=${() => this.onStop?.()}>${renderStopIcon()}</button>
@@ -397,6 +409,68 @@ export class PromptEditor extends LitElement {
     this.attachmentError = undefined;
   }
 
+  private async toggleRecording() {
+    if (this.disabled) return;
+    if (this.recordingState === "recording") { await this.finishRecording(); return; }
+    if (this.recordingState !== "idle") return;
+    this.transcriptionError = undefined;
+    this.recordingState = "requesting";
+    const recorder = createRecorder();
+    try {
+      await recorder.start();
+      this.recorder = recorder;
+      this.recordingState = "recording";
+    } catch (error) {
+      recorder.cancel();
+      this.recorder = undefined;
+      this.recordingState = "idle";
+      this.transcriptionError = micErrorMessage(error);
+    }
+  }
+
+  private async finishRecording() {
+    const recorder = this.recorder;
+    if (recorder === undefined || this.recordingState !== "recording") return;
+    this.recordingState = "transcribing";
+    try {
+      const { blob, ext } = await recorder.stop();
+      const { text } = await api.transcribe(blob, ext);
+      this.insertTranscript(text);
+    } catch (error) {
+      this.transcriptionError = error instanceof Error && error.message !== "" ? error.message : "Transcription failed. Please try again.";
+    } finally {
+      this.recorder = undefined;
+      this.recordingState = "idle";
+    }
+  }
+
+  private insertTranscript(text: string) {
+    const trimmed = text.trim();
+    if (trimmed === "") return;
+    const editor = this.editor;
+    if (editor === undefined) {
+      // No mounted view (e.g. disconnected); fall back to appending to the draft.
+      const needsSpace = this.draft.length > 0 && !/\s$/u.test(this.draft);
+      this.updateDraft(`${this.draft}${needsSpace ? " " : ""}${trimmed}`);
+      return;
+    }
+    const selection = editor.state.selection.main;
+    const before = selection.from > 0 ? editor.state.sliceDoc(selection.from - 1, selection.from) : "";
+    const after = editor.state.sliceDoc(selection.to, selection.to + 1);
+    const lead = before !== "" && !/\s/u.test(before) ? " " : "";
+    const trail = after !== "" && !/\s/u.test(after) ? " " : "";
+    const insert = `${lead}${trimmed}${trail}`;
+    // Cursor lands just after the inserted words (before any trailing pad space).
+    const cursor = selection.from + lead.length + trimmed.length;
+    // The CM update listener fires updateDraft() on docChanged, so draft + persistence update automatically.
+    editor.dispatch({
+      changes: { from: selection.from, to: selection.to, insert },
+      selection: EditorSelection.cursor(cursor),
+      scrollIntoView: true,
+    });
+    editor.focus();
+  }
+
   static override styles = promptEditorStyles;
 }
 
@@ -404,6 +478,25 @@ function draftStorageKey(machineId: unknown, sessionId: unknown): string | undef
   if (typeof machineId !== "string" || machineId === "") return undefined;
   if (typeof sessionId !== "string" || sessionId === "") return undefined;
   return machineSessionKey(machineId, sessionId);
+}
+
+function micButtonLabel(state: "idle" | "requesting" | "recording" | "transcribing"): string {
+  switch (state) {
+    case "idle": return "Record a voice message";
+    case "requesting": return "Starting microphone…";
+    case "recording": return "Stop recording and transcribe";
+    case "transcribing": return "Transcribing…";
+  }
+}
+
+function micErrorMessage(error: unknown): string {
+  if (error instanceof DOMException) {
+    if (error.name === "NotAllowedError" || error.name === "SecurityError") {
+      return "Microphone access was denied. Allow it in your browser settings to use voice input.";
+    }
+    if (error.name === "NotFoundError") return "No microphone was found.";
+  }
+  return error instanceof Error && error.message !== "" ? error.message : "Could not start recording.";
 }
 
 function emptySlashCommands(): SlashCommand[] {

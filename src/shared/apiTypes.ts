@@ -297,6 +297,10 @@ export interface FileSuggestion {
   kind: "tracked" | "untracked" | "other";
 }
 
+export interface TranscriptionResponse {
+  text: string;
+}
+
 export interface FileTreeEntry {
   name: string;
   path: string;

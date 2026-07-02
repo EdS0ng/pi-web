@@ -459,6 +459,11 @@ export const promptEditorStyles = css`
   .icon-button .prompt-action-icon-filled { fill: currentColor; stroke: none; }
   .send-button:not(:disabled) { color: var(--pi-accent, var(--pi-text)); }
   .stop-button:not(:disabled) { color: var(--pi-danger); }
+  .mic-button.recording:not(:disabled) { color: var(--pi-danger); }
+  .mic-button.transcribing { position: relative; }
+  .mic-button.transcribing .prompt-action-icon { opacity: 0; }
+  .mic-button.transcribing::after { content: ""; position: absolute; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--pi-border); border-top-color: var(--pi-text); animation: mic-spin .8s linear infinite; }
+  @keyframes mic-spin { to { transform: rotate(360deg); } }
   .select-thinking .prompt-thinking-gauge .gauge-bar { fill: currentColor; stroke: none; opacity: .28; }
   .select-thinking .prompt-thinking-gauge .gauge-bar-active { opacity: 1; }
   .editor-attach { position: absolute; right: 8px; bottom: 8px; z-index: 2; width: 30px; height: 30px; }
