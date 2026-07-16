@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { AuthStorage, ModelRegistry, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import type { GlobalSessionEvent, SessionUiEvent } from "../../shared/apiTypes.js";
 import { SessionEventHub } from "../realtime/sessionEventHub.js";
@@ -1656,6 +1656,149 @@ describe("PiSessionService", () => {
       await expect(service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "p", parentSessionFile: undefined, prompt: "go", cwd: undefined }))
         .rejects.toThrow("Spawning sessions is disabled");
       await service.dispose();
+    });
+  });
+
+  describe("idle session reaping", () => {
+    it("reaps sessions idle past the timeout and reopens them on demand", async () => {
+      vi.useFakeTimers();
+      let service: PiSessionService | undefined;
+      try {
+        const hub = new CapturingSessionEventHub();
+        const fake = fakeRuntime("reap-session");
+        service = new PiSessionService(hub, {
+          createAgentRuntime: runtimeCreator(fake.runtime),
+          sessionManager: sessionGateway([sessionRecord("reap-session")]),
+          heartbeatIntervalMs: 1_000,
+          idleSessionTimeoutMs: 5_000,
+        });
+
+        await service.status(sessionRef("reap-session"));
+        expect(service.activeCount()).toBe(1);
+
+        await vi.advanceTimersByTimeAsync(6_000);
+
+        expect(service.activeCount()).toBe(0);
+        expect(fake.calls.dispose).toBe(1);
+
+        await expect(service.status(sessionRef("reap-session"))).resolves.toMatchObject({ sessionId: "reap-session" });
+        expect(service.activeCount()).toBe(1);
+      } finally {
+        await service?.dispose();
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not reap sessions with in-flight work", async () => {
+      vi.useFakeTimers();
+      let service: PiSessionService | undefined;
+      try {
+        const fake = fakeRuntime("busy-session", { isStreaming: true });
+        service = new PiSessionService(new CapturingSessionEventHub(), {
+          createAgentRuntime: runtimeCreator(fake.runtime),
+          sessionManager: sessionGateway([sessionRecord("busy-session")]),
+          heartbeatIntervalMs: 1_000,
+          idleSessionTimeoutMs: 5_000,
+        });
+
+        await service.status(sessionRef("busy-session"));
+        await vi.advanceTimersByTimeAsync(20_000);
+
+        expect(service.activeCount()).toBe(1);
+        expect(fake.calls.dispose).toBe(0);
+      } finally {
+        await service?.dispose();
+        vi.useRealTimers();
+      }
+    });
+
+    it("counts session events as activity when deciding idleness", async () => {
+      vi.useFakeTimers();
+      let service: PiSessionService | undefined;
+      try {
+        let listener: ((event: unknown) => void) | undefined;
+        const fake = fakeRuntime("event-session", {
+          subscribe: (next) => {
+            listener = next;
+            return () => undefined;
+          },
+        });
+        service = new PiSessionService(new CapturingSessionEventHub(), {
+          createAgentRuntime: runtimeCreator(fake.runtime),
+          sessionManager: sessionGateway([sessionRecord("event-session")]),
+          heartbeatIntervalMs: 1_000,
+          idleSessionTimeoutMs: 5_000,
+        });
+
+        await service.status(sessionRef("event-session"));
+        await vi.advanceTimersByTimeAsync(3_000);
+        listener?.({ type: "message_end" });
+
+        await vi.advanceTimersByTimeAsync(3_000);
+        expect(service.activeCount()).toBe(1);
+
+        await vi.advanceTimersByTimeAsync(3_000);
+        expect(service.activeCount()).toBe(0);
+      } finally {
+        await service?.dispose();
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not reap a session while an extension awaits a browser dialog", async () => {
+      vi.useFakeTimers();
+      let service: PiSessionService | undefined;
+      try {
+        let uiContext: ExtensionUIContext | undefined;
+        const fake = fakeRuntime("dialog-session", {
+          bindExtensions: (bindings) => {
+            uiContext = bindings.uiContext;
+            return Promise.resolve();
+          },
+        });
+        service = new PiSessionService(new CapturingSessionEventHub(), {
+          createAgentRuntime: runtimeCreator(fake.runtime),
+          sessionManager: sessionGateway([sessionRecord("dialog-session")]),
+          heartbeatIntervalMs: 1_000,
+          idleSessionTimeoutMs: 5_000,
+        });
+
+        await service.status(sessionRef("dialog-session"));
+        const selection = uiContext?.select("Pick one", ["a", "b"], { timeout: 8_000 });
+
+        await vi.advanceTimersByTimeAsync(7_000);
+        expect(service.activeCount()).toBe(1);
+
+        // The dialog times out at 8s; the next heartbeat reaps the session.
+        await vi.advanceTimersByTimeAsync(3_000);
+        await expect(selection).resolves.toBeUndefined();
+        expect(service.activeCount()).toBe(0);
+      } finally {
+        await service?.dispose();
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps sessions in memory when reaping is disabled", async () => {
+      vi.useFakeTimers();
+      let service: PiSessionService | undefined;
+      try {
+        const fake = fakeRuntime("pinned-session");
+        service = new PiSessionService(new CapturingSessionEventHub(), {
+          createAgentRuntime: runtimeCreator(fake.runtime),
+          sessionManager: sessionGateway([sessionRecord("pinned-session")]),
+          heartbeatIntervalMs: 1_000,
+          idleSessionTimeoutMs: 0,
+        });
+
+        await service.status(sessionRef("pinned-session"));
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        expect(service.activeCount()).toBe(1);
+      } finally {
+        await service?.dispose();
+        vi.useRealTimers();
+      }
     });
   });
 });

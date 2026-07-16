@@ -49,6 +49,23 @@ export function maxUploadBytes(env: NodeJS.ProcessEnv = process.env, config: PiW
   return DEFAULT_MAX_UPLOAD_BYTES;
 }
 
+/**
+ * How long (ms) an idle session runtime may stay in session-daemon memory
+ * before it is closed. Session state is persisted, so a reaped session reopens
+ * from its file on the next use. Undefined applies the session service's
+ * built-in default; 0 disables reaping. Set the env var
+ * `PI_WEB_SESSION_IDLE_TIMEOUT_MS` or the `sessionIdleTimeoutMs` config key.
+ * The env var takes precedence over the config file.
+ */
+export function sessionIdleTimeoutMs(env: NodeJS.ProcessEnv = process.env, config: PiWebConfig = {}): number | undefined {
+  const fromEnv = env["PI_WEB_SESSION_IDLE_TIMEOUT_MS"];
+  if (fromEnv !== undefined && fromEnv !== "") {
+    const parsed = Number(fromEnv);
+    if (Number.isInteger(parsed) && parsed >= 0) return parsed;
+  }
+  return config.sessionIdleTimeoutMs;
+}
+
 export function piWebDataDir(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {
   const configured = env["PI_WEB_DATA_DIR"];
   if (configured === undefined || configured === "") return defaultPiWebDataDir();
@@ -136,6 +153,7 @@ function piWebConfigRecord(config: PiWebConfig): Record<string, unknown> {
     ...(config.pathAccess !== undefined ? { pathAccess: config.pathAccess } : {}),
     ...(config.uploads !== undefined ? { uploads: config.uploads } : {}),
     ...(config.maxUploadBytes !== undefined ? { maxUploadBytes: config.maxUploadBytes } : {}),
+    ...(config.sessionIdleTimeoutMs !== undefined ? { sessionIdleTimeoutMs: config.sessionIdleTimeoutMs } : {}),
     ...(config.spawnSessions !== undefined ? { spawnSessions: config.spawnSessions } : {}),
     ...(config.subsessions !== undefined ? { subsessions: config.subsessions } : {}),
   };
@@ -151,6 +169,7 @@ function parsePiWebConfig(value: Record<string, unknown>, path: string): PiWebCo
     ...(value["pathAccess"] !== undefined ? { pathAccess: parsePathAccessConfig(value["pathAccess"], path) } : {}),
     ...(value["uploads"] !== undefined ? { uploads: parseUploadsConfig(value["uploads"], path) } : {}),
     ...(value["maxUploadBytes"] !== undefined ? { maxUploadBytes: parseMaxUploadBytes(value["maxUploadBytes"], "maxUploadBytes", path) } : {}),
+    ...(value["sessionIdleTimeoutMs"] !== undefined ? { sessionIdleTimeoutMs: parseSessionIdleTimeoutMs(value["sessionIdleTimeoutMs"], path) } : {}),
     ...(value["spawnSessions"] !== undefined ? { spawnSessions: parseSpawnSessions(value["spawnSessions"], path) } : {}),
     ...(value["subsessions"] !== undefined ? { subsessions: parseSubsessions(value["subsessions"], path) } : {}),
   };
@@ -160,6 +179,12 @@ function parseMaxUploadBytes(value: unknown, key: string, path = "environment"):
   const bytes = typeof value === "number" ? value : typeof value === "string" && value !== "" ? Number(value) : NaN;
   if (!Number.isInteger(bytes) || bytes < 1) throw new Error(`PI WEB config ${key} must be a positive integer: ${path}`);
   return bytes;
+}
+
+function parseSessionIdleTimeoutMs(value: unknown, path: string): number {
+  const ms = typeof value === "number" ? value : typeof value === "string" && value !== "" ? Number(value) : NaN;
+  if (!Number.isInteger(ms) || ms < 0) throw new Error(`PI WEB config sessionIdleTimeoutMs must be a non-negative integer: ${path}`);
+  return ms;
 }
 
 function parseSpawnSessions(value: unknown, path: string): boolean {

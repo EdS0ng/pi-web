@@ -148,7 +148,7 @@ export class PiWebApp extends LitElement {
   private readonly machineNavigation = new SessionStorageMachineNavigationMemory();
   private readonly terminalSelection = new SessionStorageTerminalSelectionMemory();
   private readonly appShell = new AppShellController(this);
-  private readonly panelCollapse = new PanelCollapseController(this);
+  private readonly panelCollapse = new PanelCollapseController(this, { navigationPanelCollapsed: !this.isDesktopSideBySideLayout() });
   private readonly panelResize = new PanelResizeController(this);
   private readonly navigationSections = new NavigationSectionsController(
     this,
@@ -674,6 +674,7 @@ export class PiWebApp extends LitElement {
 
   private openWorkspaceTool(tool: QualifiedContributionId) {
     if (tool === "core:workspace.terminal") this.terminalAutoStartWorkspaceId = this.state.selectedWorkspace?.id;
+    this.panelCollapse.expandWorkspacePanel();
     this.setState({ workspaceTool: tool, mainView: tool });
     this.updateUrl();
     this.refreshSelectedWorkspaceTool(tool);
@@ -987,14 +988,10 @@ export class PiWebApp extends LitElement {
   }
 
   private oppositeResizablePanelWidth(side: ResizablePanelSide): number {
-    const otherSide: ResizablePanelSide = side === "navigation" ? "workspace" : "navigation";
-    if (this.isResizablePanelCollapsedOrStacked(otherSide)) return 0;
-    return this.measuredPanelWidth(otherSide) ?? this.panelResize.panelWidth(otherSide);
-  }
-
-  private isResizablePanelCollapsedOrStacked(side: ResizablePanelSide): boolean {
-    if (side === "navigation") return this.panelCollapse.navigationPanelCollapsed;
-    return this.panelCollapse.workspacePanelCollapsed || !this.isDesktopSideBySideLayout();
+    // The workspace panel floats over the shell, so only the navigation panel takes grid space.
+    if (side === "navigation") return 0;
+    if (this.panelCollapse.navigationPanelCollapsed) return 0;
+    return this.measuredPanelWidth("navigation") ?? this.panelResize.panelWidth("navigation");
   }
 
   private isDesktopSideBySideLayout(): boolean {
@@ -1408,6 +1405,13 @@ export class PiWebApp extends LitElement {
 
   private panelLayoutActions(): AppAction[] {
     return [
+      {
+        id: "app.layout.toggle-workspace-panel",
+        title: "Toggle Workspace Panel",
+        description: "Show or hide the workspace tools overlay",
+        group: "View",
+        run: () => { this.panelCollapse.toggleWorkspacePanel(); },
+      },
       {
         id: "app.layout.reset-navigation-panel-size",
         title: "Reset Navigation Panel Size",

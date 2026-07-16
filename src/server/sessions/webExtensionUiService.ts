@@ -99,6 +99,14 @@ export class WebExtensionUiService {
     this.settle(requestId, undefined);
   }
 
+  /** Whether any UI request for this session is still awaiting an answer. */
+  hasPendingForSession(sessionId: string): boolean {
+    for (const pending of this.pending.values()) {
+      if (pending.sessionId === sessionId) return true;
+    }
+    return false;
+  }
+
   /** Resolve every pending request for a session to `undefined`, used on teardown. */
   rejectPendingForSession(sessionId: string): void {
     for (const [requestId, pending] of this.pending) {

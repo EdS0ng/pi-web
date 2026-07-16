@@ -25,13 +25,13 @@ defaults → global config file → environment overrides
 
 Supported project-local settings are then applied for that project's workspaces. For upload defaults, `<project>/.pi-web/config.json` overrides the global value.
 
-Environment overrides include `PI_WEB_HOST`, `PI_WEB_PORT` / `PORT`, `PI_WEB_ALLOWED_HOSTS`, `PI_WEB_MAX_UPLOAD_BYTES`, `PI_WEB_SPAWN_SESSIONS`, and `PI_WEB_SUBSESSIONS`.
+Environment overrides include `PI_WEB_HOST`, `PI_WEB_PORT` / `PORT`, `PI_WEB_ALLOWED_HOSTS`, `PI_WEB_MAX_UPLOAD_BYTES`, `PI_WEB_SESSION_IDLE_TIMEOUT_MS`, `PI_WEB_SPAWN_SESSIONS`, and `PI_WEB_SUBSESSIONS`.
 
 Process restarts depend on the key:
 
 - `host` / `port`: restart the web/API service or process.
 - `maxUploadBytes`: restart both the web/API process and the session daemon.
-- `spawnSessions` / `subsessions`: restart the session daemon.
+- `sessionIdleTimeoutMs` / `spawnSessions` / `subsessions`: restart the session daemon.
 - `pathAccess`: applies on the next request; existing file views may need a browser refresh.
 - `uploads.defaultFolder`: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.
 - `plugins`: reload the browser tab after changing plugin enablement.
@@ -50,6 +50,7 @@ Process restarts depend on the key:
     "defaultFolder": ".pi-web/uploads"
   },
   "maxUploadBytes": 67108864,
+  "sessionIdleTimeoutMs": 1800000,
   "spawnSessions": true,
   "subsessions": false,
   "plugins": {
@@ -99,6 +100,7 @@ Rows with JSON key `—` are runtime-only environment variables, not config-file
 | External filesystem roots | `pathAccess.allowedPaths` | — | Global + project | **Merges**: global roots first, then project roots; duplicates removed | Next file request; refresh existing views if needed |
 | Manual file upload default folder | `uploads.defaultFolder` | — | Global + project | **Overrides**: project value wins for workspaces in that project; otherwise global/default applies | New Upload dialogs and direct drag/drop batches after config/workspace refresh |
 | Upload/body limit | `maxUploadBytes` | `PI_WEB_MAX_UPLOAD_BYTES` | Global | Not supported locally | Restart web/API and session daemon |
+| Idle session reaping | `sessionIdleTimeoutMs` | `PI_WEB_SESSION_IDLE_TIMEOUT_MS` | Global/session daemon | Not supported locally | Restart session daemon |
 | Agent can spawn sessions | `spawnSessions` | `PI_WEB_SPAWN_SESSIONS` | Global/session daemon | Not supported locally | Restart session daemon |
 | Tracked subsessions (beta) | `subsessions` | `PI_WEB_SUBSESSIONS` | Global/session daemon | Not supported locally; also requires `spawnSessions` | Restart session daemon |
 | Plugin enablement/settings | `plugins.<id>.enabled`, `plugins.<id>.settings` | — | Global | Not core local config; plugins may read their own project files | Reload browser tab |
@@ -167,6 +169,12 @@ The per-request size limit is still controlled by `maxUploadBytes` / `PI_WEB_MAX
 `subsessions` is beta and controls whether agents receive the tracked-subsession tools: `spawn_subsession`, `list_subsessions`, `check_subsession`, and `read_subsession`. It defaults to `false` and also requires `spawnSessions` to be enabled.
 
 Tracked subsessions let an agent delegate work to child sessions, get notified when children stop working, and inspect their transcripts.
+
+### Idle session reaping
+
+`sessionIdleTimeoutMs` controls how long an inactive session runtime stays in session-daemon memory. Session state is persisted to the session file, so a reaped session reopens transparently on its next message or lookup; reaping only bounds memory growth. Sessions with in-flight work (streaming, compacting, running bash, queued messages) or a pending extension dialog are never reaped.
+
+The default is 30 minutes (`1800000`). Set `0` to disable reaping and keep every opened session in memory until the daemon restarts.
 
 ### Plugin config
 

@@ -1,16 +1,22 @@
 import type { ReactiveController, ReactiveControllerHost } from "lit";
 import type { AppState } from "../appState";
 
+export interface PanelCollapseControllerOptions {
+  navigationPanelCollapsed?: boolean;
+}
+
 export class PanelCollapseController implements ReactiveController {
-  navigationPanelCollapsed = false;
-  workspacePanelCollapsed = false;
+  navigationPanelCollapsed: boolean;
+  // The workspace panel opens as an overlay on demand, so it starts hidden.
+  workspacePanelCollapsed = true;
 
   hostConnected(): void {
     return;
   }
 
-  constructor(private readonly host: ReactiveControllerHost) {
+  constructor(private readonly host: ReactiveControllerHost, options: PanelCollapseControllerOptions = {}) {
     host.addController(this);
+    this.navigationPanelCollapsed = options.navigationPanelCollapsed ?? false;
   }
 
   toggleNavigationPanel(): void {

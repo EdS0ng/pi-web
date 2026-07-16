@@ -49,6 +49,13 @@ export interface PiSessionLogger {
 
 const noopLogger: PiSessionLogger = { info() { /* no-op */ } };
 
+/**
+ * Default idle time before an in-memory session runtime is reaped. Session
+ * state is persisted to the session file as it changes, so reaped sessions
+ * reopen transparently on their next use.
+ */
+export const DEFAULT_IDLE_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+
 function noop(): void {
   // Intentionally empty default unsubscribe callback.
 }
@@ -292,6 +299,13 @@ export interface PiSessionServiceDependencies {
   createAgentRuntime?: CreateAgentRuntime;
   modelRegistry?: ModelRegistryInstance;
   heartbeatIntervalMs?: number;
+  /**
+   * Idle time (ms) after which an in-memory session runtime is closed. The
+   * session file holds all state, so a reaped session reopens on its next use;
+   * reaping only bounds the memory held by inactive runtimes. 0 disables
+   * reaping. Defaults to {@link DEFAULT_IDLE_SESSION_TIMEOUT_MS}.
+   */
+  idleSessionTimeoutMs?: number;
   workspaceActivity?: Pick<WorkspaceActivityService, "applySessionStatus" | "applySessionActivity" | "removeSession" | "reconcileSessionActivity">;
   /**
    * When provided, the `spawn_session` tool is registered on every session,
@@ -315,6 +329,7 @@ export class PiSessionService {
   private readonly active = new Map<string, ActiveSession<PiSessionRuntime>>();
   private readonly activities = new Map<string, { phase: "active" | "idle" | "error"; label: string; detail?: string; at: string }>();
   private readonly heartbeat: NodeJS.Timeout;
+  private readonly idleSessionTimeoutMs: number;
   private readonly commandService: SessionCommandService<PiAgentSession>;
   private readonly webUi: WebExtensionUiService;
   private readonly compactionPromptQueues = new Map<string, QueuedPrompt[]>();
@@ -368,7 +383,11 @@ export class PiSessionService {
     this.createAgentRuntime = deps.createAgentRuntime ?? defaultCreateAgentRuntime;
     this.workspaceActivity = deps.workspaceActivity;
     this.webUi = new WebExtensionUiService(this.events);
-    this.heartbeat = setInterval(() => { this.publishHeartbeats(); }, deps.heartbeatIntervalMs ?? 2000);
+    this.idleSessionTimeoutMs = deps.idleSessionTimeoutMs ?? DEFAULT_IDLE_SESSION_TIMEOUT_MS;
+    this.heartbeat = setInterval(() => {
+      this.publishHeartbeats();
+      this.reapIdleSessions();
+    }, deps.heartbeatIntervalMs ?? 2000);
     this.commandService = new SessionCommandService(
       (sessionId) => this.getActive(sessionId),
       (sessionId, text) => this.prompt(sessionId, text, undefined, undefined, { echoUserMessage: false }),
@@ -1253,6 +1272,13 @@ export class PiSessionService {
   }
 
   private activeForLookup(ref: PiSessionLookup): ActiveSession<PiSessionRuntime> | undefined {
+    const active = this.findActiveForLookup(ref);
+    // Every lookup counts as activity so sessions in use are not reaped.
+    if (active !== undefined) active.lastActivityAt = Date.now();
+    return active;
+  }
+
+  private findActiveForLookup(ref: PiSessionLookup): ActiveSession<PiSessionRuntime> | undefined {
     const sessionId = sessionIdFromLookup(ref);
     const exact = this.active.get(sessionId);
     if (exact !== undefined && lookupMatchesActiveSession(ref, exact)) return exact;
@@ -1265,7 +1291,7 @@ export class PiSessionService {
   private async create(sessionManager: PiSessionManager, cwd: string): Promise<ActiveSession<PiSessionRuntime>> {
     const runtime = await this.createAgentRuntime(this.createRuntime, { cwd, agentDir: this.agentDir, sessionManager });
     await this.bindSessionExtensions(runtime.session);
-    const active: ActiveSession<PiSessionRuntime> = { runtime, unsubscribe: noop };
+    const active: ActiveSession<PiSessionRuntime> = { runtime, unsubscribe: noop, lastActivityAt: Date.now() };
     this.bindRuntime(active);
     runtime.setRebindSession(async (session) => {
       await this.bindSessionExtensions(session);
@@ -1303,6 +1329,7 @@ export class PiSessionService {
       }
     }
     active.unsubscribe = session.subscribe((event) => {
+      active.lastActivityAt = Date.now();
       this.events.publish(session.sessionId, toClientEvent(event));
       this.publishActivityForEvent(session, event);
       const eventType = getString(event, "type");
@@ -1435,6 +1462,28 @@ export class PiSessionService {
       : { type: "session.name", sessionId: session.sessionId, name: session.sessionName } as const;
     this.events.publish(session.sessionId, event);
     this.events.publishGlobal(event);
+  }
+
+  /**
+   * Close runtimes that have seen no lookups or session events for the idle
+   * timeout. Session state is persisted, so a reaped session reopens from its
+   * file on the next lookup; reaping only bounds the memory idle runtimes hold.
+   */
+  private reapIdleSessions(): void {
+    if (this.idleSessionTimeoutMs <= 0) return;
+    const now = Date.now();
+    for (const [sessionId, active] of this.active.entries()) {
+      if (now - active.lastActivityAt < this.idleSessionTimeoutMs) continue;
+      // Never reap mid-work. A pending browser dialog also blocks reaping:
+      // closeActive resolves it to undefined, which the awaiting extension
+      // would see as the user dismissing the dialog.
+      if (this.hasActiveWork(active.runtime.session)) continue;
+      if (this.webUi.hasPendingForSession(sessionId)) continue;
+      this.logger.info({ sessionId, idleMs: now - active.lastActivityAt }, "reaping idle session runtime");
+      void this.closeActive(sessionId).catch(() => {
+        // Best-effort like stop(); the runtime is already out of the active map.
+      });
+    }
   }
 
   private publishHeartbeats(): void {

@@ -19,7 +19,7 @@ import { TerminalService } from "./terminals/terminalService.js";
 import { registerTerminalRoutes } from "./terminals/terminalRoutes.js";
 import { getPiWebRuntimeComponent } from "./piWebStatus.js";
 import { SESSIOND_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
-import { effectivePiWebConfig, maxUploadBytes, spawnSessionsEnabled, subsessionsEnabled } from "../config.js";
+import { effectivePiWebConfig, maxUploadBytes, sessionIdleTimeoutMs, spawnSessionsEnabled, subsessionsEnabled } from "../config.js";
 
 const { config } = effectivePiWebConfig();
 const app = Fastify({ logger: true, bodyLimit: maxUploadBytes(process.env, config) });
@@ -31,12 +31,14 @@ const auth = new AuthService();
 const spawnTargets = spawnSessionsEnabled(process.env, config)
   ? new ProjectScopedSpawnTargetResolver({ projects: new ProjectService(new ProjectStore()), workspaces: new WorkspaceService() })
   : undefined;
+const idleSessionTimeout = sessionIdleTimeoutMs(process.env, config);
 const sessions = new PiSessionService(eventHub, {
   modelRegistry: auth.modelRegistry,
   workspaceActivity,
   logger: app.log,
   ...(spawnTargets === undefined ? {} : { spawnTargets }),
   subsessionsEnabled: spawnTargets !== undefined && subsessionsEnabled(process.env, config),
+  ...(idleSessionTimeout === undefined ? {} : { idleSessionTimeoutMs: idleSessionTimeout }),
 });
 auth.subscribe((change) => { sessions.applyAuthChange(change); });
 const terminals = new TerminalService(eventHub, workspaceActivity);

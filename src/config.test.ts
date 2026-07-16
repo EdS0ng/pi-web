@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_UPLOADS_FOLDER, effectivePiWebConfig, loadPiWebConfig, maxUploadBytes, savePiWebConfig, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
+import { DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_UPLOADS_FOLDER, effectivePiWebConfig, loadPiWebConfig, maxUploadBytes, savePiWebConfig, sessionIdleTimeoutMs, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
 
 let tempDir: string;
 let configPath: string;
@@ -49,6 +49,17 @@ describe("PI WEB config persistence", () => {
     expect(loadPiWebConfig(testOptions()).config.maxUploadBytes).toBe(1234);
   });
 
+  it("persists and reads sessionIdleTimeoutMs", () => {
+    savePiWebConfig({ sessionIdleTimeoutMs: 60_000 }, testOptions());
+    expect(loadPiWebConfig(testOptions()).config.sessionIdleTimeoutMs).toBe(60_000);
+  });
+
+  it("rejects a negative sessionIdleTimeoutMs", async () => {
+    await writeFile(configPath, `${JSON.stringify({ sessionIdleTimeoutMs: -1 }, null, 2)}\n`, "utf8");
+
+    expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config sessionIdleTimeoutMs must be a non-negative integer");
+  });
+
   it("exposes the default upload folder in the effective config", () => {
     expect(effectivePiWebConfig(testOptions()).config.uploads).toEqual({ defaultFolder: DEFAULT_UPLOADS_FOLDER });
   });
@@ -71,6 +82,21 @@ describe("maxUploadBytes", () => {
 
   it("falls back to config when env is unset or invalid", () => {
     expect(maxUploadBytes({ PI_WEB_MAX_UPLOAD_BYTES: "not-a-number" }, { maxUploadBytes: 555 })).toBe(555);
+  });
+});
+
+describe("sessionIdleTimeoutMs", () => {
+  it("is undefined by default so the session service default applies", () => {
+    expect(sessionIdleTimeoutMs({}, {})).toBeUndefined();
+  });
+
+  it("prefers the env override over config, including 0 to disable reaping", () => {
+    expect(sessionIdleTimeoutMs({ PI_WEB_SESSION_IDLE_TIMEOUT_MS: "60000" }, { sessionIdleTimeoutMs: 99 })).toBe(60_000);
+    expect(sessionIdleTimeoutMs({ PI_WEB_SESSION_IDLE_TIMEOUT_MS: "0" }, { sessionIdleTimeoutMs: 99 })).toBe(0);
+  });
+
+  it("falls back to config when env is unset or invalid", () => {
+    expect(sessionIdleTimeoutMs({ PI_WEB_SESSION_IDLE_TIMEOUT_MS: "not-a-number" }, { sessionIdleTimeoutMs: 555 })).toBe(555);
   });
 });
 

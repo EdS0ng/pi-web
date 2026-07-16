@@ -57,7 +57,8 @@ export const appStyles = css`
   @media (display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui) {
     :host { --pi-app-safe-area-bottom: env(safe-area-inset-bottom); }
   }
-  .shell { --navigation-panel-size: 340px; --workspace-panel-size: minmax(360px, 42vw); --navigation-panel-width: var(--navigation-panel-size); --workspace-panel-width: var(--workspace-panel-size); display: grid; grid-template-columns: var(--navigation-panel-width) 1px minmax(320px, 1fr) 1px var(--workspace-panel-width); height: 100%; min-height: 0; }
+  /* The workspace panel is not a grid column: it floats over the shell as a right-side overlay, so --workspace-panel-size must stay usable as a width (no minmax()). */
+  .shell { --navigation-panel-size: 340px; --workspace-panel-size: max(360px, 42vw); --navigation-panel-width: var(--navigation-panel-size); --workspace-panel-overlay-width: min(var(--workspace-panel-size), calc(100% - 56px)); position: relative; display: grid; grid-template-columns: var(--navigation-panel-width) 1px minmax(320px, 1fr) 1px; height: 100%; min-height: 0; }
   aside { grid-column: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
   aside app-navigation-panel { flex: 1 1 auto; min-height: 0; }
   header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid var(--pi-border); }
@@ -101,12 +102,14 @@ export const appStyles = css`
   .shell.navigation-panel-collapsed .navigation-panel-edge-button { transform: translateX(calc(50% - .5px)); }
   .shell.workspace-panel-collapsed .workspace-panel-edge-button { transform: translateX(calc(-50% + .5px)); }
   .navigation-panel-edge-icon, .workspace-panel-edge-icon { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
-  workspace-panel { grid-column: 5; min-width: 0; min-height: 0; overflow: hidden; }
+  workspace-panel { min-width: 0; min-height: 0; overflow: hidden; }
   @media (min-width: 1181px) {
     .shell.navigation-panel-collapsed { --navigation-panel-width: 0px; }
     .shell.navigation-panel-collapsed > aside { display: none; }
-    .shell.workspace-panel-collapsed { --workspace-panel-width: 0px; }
+    .shell > workspace-panel { position: absolute; top: 0; right: 0; bottom: 0; z-index: 8; width: var(--workspace-panel-overlay-width); box-shadow: -14px 0 36px var(--pi-shadow); }
     .shell.workspace-panel-collapsed > workspace-panel { display: none; }
+    /* Pin the toggle/resize control to the overlay's left edge while it is open. grid-area: auto is required: with an explicit grid placement, an absolutely positioned grid child resolves against its 1px track instead of the shell. */
+    .shell:not(.workspace-panel-collapsed) > app-panel-edge-control[side="workspace"] { grid-area: auto; position: absolute; top: 0; bottom: 0; right: var(--workspace-panel-overlay-width); width: 1px; z-index: 9; }
   }
   @media (max-width: 1180px) {
     .shell { grid-template-columns: var(--navigation-panel-width) 1px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
