@@ -155,6 +155,19 @@ Validate changes with:
 npm run verify
 ```
 
+### UI tests (Playwright)
+
+Browser smoke tests live in `e2e/` and run against a fully isolated stack (session daemon, API, and Vite client on free ports with a temporary synthetic project), so no dev servers need to be running:
+
+```bash
+npx playwright install chromium   # one-time browser download
+npm run test:e2e                  # run the smoke suite
+npm run test:e2e:ui               # interactive UI mode
+npm run e2e:stack                 # boot a persistent isolated stack for manual browsing
+```
+
+They are not part of `npm run verify` yet. The docs screenshot script (`npm run capture:screenshots`) uses the same stack and Playwright's bundled Chromium; set `CHROME_BIN` or pass `--chrome-bin` to use another browser binary.
+
 ## Security model
 
 PI WEB assumes trusted users, trusted repositories, and trusted server paths.

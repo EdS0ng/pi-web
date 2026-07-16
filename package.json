@@ -40,6 +40,7 @@
     "test": "vitest run --config vitest.config.ts",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
+    "e2e:stack": "tsx e2e/support/stack-cli.ts",
     "verify": "npm run typecheck && npm run lint && npm run knip && npm test",
     "start": "tsx src/server/index.ts",
     "start:sessiond": "tsx src/server/sessiond.ts",
