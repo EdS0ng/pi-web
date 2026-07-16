@@ -11,7 +11,8 @@
   "project": [
     "src/**/*.ts",
     "extensions/**/*.ts",
-    "pi-web-plugins/**/*.ts"
+    "pi-web-plugins/**/*.ts",
+    "e2e/**/*.ts"
   ],
   "ignoreExportsUsedInFile": true
 }

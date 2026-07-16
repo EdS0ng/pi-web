@@ -5,10 +5,10 @@ import tseslint from "typescript-eslint";
 
 export default defineConfig([
   {
-    ignores: ["dist/**", "node_modules/**", "plugins/*/dist/**"],
+    ignores: ["dist/**", "node_modules/**", "plugins/*/dist/**", "e2e/scratch/**"],
   },
   {
-    files: ["src/**/*.ts", "extensions/**/*.ts", "pi-web-plugins/**/*.ts", "plugins/**/*.ts", "vite.config.ts", "vitest.config.ts"],
+    files: ["src/**/*.ts", "extensions/**/*.ts", "pi-web-plugins/**/*.ts", "plugins/**/*.ts", "e2e/**/*.ts", "vite.config.ts", "vitest.config.ts", "playwright.config.ts", "scripts/capture-screenshots.ts"],
     extends: [
       js.configs.recommended,
       tseslint.configs.strictTypeChecked,

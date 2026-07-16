@@ -35,7 +35,13 @@
     "src/**/*.ts",
     "vite.config.ts",
     "vitest.config.ts",
+    "playwright.config.ts",
     "extensions/**/*.ts",
-    "pi-web-plugins/**/*.ts"
+    "pi-web-plugins/**/*.ts",
+    "e2e/**/*.ts",
+    "scripts/capture-screenshots.ts"
+  ],
+  "exclude": [
+    "e2e/scratch"
   ]
 }
