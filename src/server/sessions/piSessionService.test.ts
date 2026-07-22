@@ -748,7 +748,7 @@ describe("PiSessionService", () => {
     const hub = new CapturingSessionEventHub();
     const authStorage = AuthStorage.inMemory({ anthropic: { type: "api_key", key: "sk-test" } });
     const modelRegistry = ModelRegistry.inMemory(authStorage);
-    const model = modelRegistry.find("anthropic", "claude-3-5-sonnet-20241022");
+    const model = modelRegistry.find("anthropic", "claude-sonnet-4-6");
     if (model === undefined) throw new Error("Expected Anthropic model fixture");
     const fake = fakeRuntime("auth-session", { model, modelRegistry });
 
@@ -767,7 +767,7 @@ describe("PiSessionService", () => {
     service.applyAuthChange({ removedProviderId: "anthropic" });
     service.applyAuthChange({ removedProviderId: "anthropic" });
 
-    const warningCount = () => hub.sessionEvents.filter(({ event }) => event.type === "command.output" && event.level === "error" && event.message.includes("anthropic/claude-3-5-sonnet-20241022")).length;
+    const warningCount = () => hub.sessionEvents.filter(({ event }) => event.type === "command.output" && event.level === "error" && event.message.includes("anthropic/claude-sonnet-4-6")).length;
     expect(warningCount()).toBe(1);
     expect(hub.globalEvents.some((event) => event.type === "status.update" && event.status.sessionId === "auth-session")).toBe(true);
 

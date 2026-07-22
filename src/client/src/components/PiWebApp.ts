@@ -2053,7 +2053,8 @@ function thinkingDescription(level: string): string | undefined {
     case "low": return "Light reasoning (~2k tokens)";
     case "medium": return "Moderate reasoning (~8k tokens)";
     case "high": return "Deep reasoning (~16k tokens)";
-    case "xhigh": return "Maximum reasoning (~32k tokens)";
+    case "xhigh": return "Very deep reasoning (~32k tokens)";
+    case "max": return "Maximum reasoning (model-specific limit)";
     default: return undefined; // unknown level from a newer pi: no description
   }
 }

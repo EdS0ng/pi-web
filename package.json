@@ -79,9 +79,9 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
-    "@earendil-works/pi-agent-core": "^0.79.1",
-    "@earendil-works/pi-ai": "^0.79.1",
-    "@earendil-works/pi-coding-agent": "^0.79.1",
+    "@earendil-works/pi-agent-core": "0.80.7",
+    "@earendil-works/pi-ai": "0.80.7",
+    "@earendil-works/pi-coding-agent": "0.80.7",
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.10.1",
     "@types/ws": "^8.18.1",
