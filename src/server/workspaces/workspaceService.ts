@@ -1,15 +1,24 @@
 import { createHash } from "node:crypto";
 import type { Project } from "../types.js";
 import type { Workspace } from "../types.js";
-import { discoverGitWorktrees, isGitRepository } from "./gitWorktreeDiscovery.js";
+import { cwdPathsEqual } from "../workingDirectory.js";
+import { discoverGitWorktrees, gitToplevel } from "./gitWorktreeDiscovery.js";
 
 const idFor = (value: string) => createHash("sha1").update(value).digest("hex").slice(0, 12);
 
 export class WorkspaceService {
   async list(project: Project): Promise<Workspace[]> {
-    const isGitRepo = await isGitRepository(project.path);
-    if (!isGitRepo) {
+    const toplevel = await gitToplevel(project.path);
+    if (toplevel === undefined) {
       return [this.single(project, false)];
+    }
+
+    // A project nested below the repo root stays its own workspace: `git worktree
+    // list` always reports the repo root, so discovering from here would silently
+    // widen the workspace path — and with it session cwd, terminals, the file tree
+    // and git scope — to the parent folder.
+    if (!cwdPathsEqual(toplevel, project.path)) {
+      return [this.single(project, true)];
     }
 
     const worktrees = await discoverGitWorktrees(project.path);
