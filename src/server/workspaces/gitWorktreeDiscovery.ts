@@ -11,12 +11,19 @@ export interface GitWorktreeInfo {
   detached?: boolean;
 }
 
-export async function isGitRepository(path: string): Promise<boolean> {
+/**
+ * Absolute path of the work tree root containing `path`, or undefined when
+ * `path` is not inside a git work tree. Note that `path` may be nested well
+ * below the returned root — callers that need `path` itself to be the root
+ * must compare the two.
+ */
+export async function gitToplevel(path: string): Promise<string | undefined> {
   try {
-    const { stdout } = await execFileAsync("git", ["-C", path, "rev-parse", "--is-inside-work-tree"], { env: sanitizedGitEnv() });
-    return stdout.trim() === "true";
+    const { stdout } = await execFileAsync("git", ["-C", path, "rev-parse", "--show-toplevel"], { env: sanitizedGitEnv() });
+    const toplevel = stdout.trim();
+    return toplevel === "" ? undefined : toplevel;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
