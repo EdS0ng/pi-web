@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_UPLOADS_FOLDER, effectivePiWebConfig, loadPiWebConfig, maxUploadBytes, savePiWebConfig, sessionIdleTimeoutMs, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
+import { DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_UPLOADS_FOLDER, effectivePiWebConfig, loadPiWebConfig, maxUploadBytes, requestInputWebhookSecret, savePiWebConfig, sessionIdleTimeoutMs, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
 
 let tempDir: string;
 let configPath: string;
@@ -60,6 +60,14 @@ describe("PI WEB config persistence", () => {
     expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config sessionIdleTimeoutMs must be a non-negative integer");
   });
 
+  it("reads and rejects requestInput webhook config", async () => {
+    await writeFile(configPath, `${JSON.stringify({ requestInput: { webhookSecret: "shh" } }, null, 2)}\n`, "utf8");
+    expect(loadPiWebConfig(testOptions()).config.requestInput).toEqual({ webhookSecret: "shh" });
+
+    await writeFile(configPath, `${JSON.stringify({ requestInput: { webhookSecret: "" } }, null, 2)}\n`, "utf8");
+    expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config requestInput.webhookSecret must be a non-empty string");
+  });
+
   it("exposes the default upload folder in the effective config", () => {
     expect(effectivePiWebConfig(testOptions()).config.uploads).toEqual({ defaultFolder: DEFAULT_UPLOADS_FOLDER });
   });
@@ -97,6 +105,21 @@ describe("sessionIdleTimeoutMs", () => {
 
   it("falls back to config when env is unset or invalid", () => {
     expect(sessionIdleTimeoutMs({ PI_WEB_SESSION_IDLE_TIMEOUT_MS: "not-a-number" }, { sessionIdleTimeoutMs: 555 })).toBe(555);
+  });
+});
+
+describe("requestInputWebhookSecret", () => {
+  it("is undefined by default (webhook disabled)", () => {
+    expect(requestInputWebhookSecret({}, {})).toBeUndefined();
+  });
+
+  it("prefers the env override over config", () => {
+    expect(requestInputWebhookSecret({ PI_WEB_REQUEST_INPUT_SECRET: "env-secret" }, { requestInput: { webhookSecret: "file-secret" } })).toBe("env-secret");
+  });
+
+  it("falls back to config when env is unset or empty", () => {
+    expect(requestInputWebhookSecret({ PI_WEB_REQUEST_INPUT_SECRET: "" }, { requestInput: { webhookSecret: "file-secret" } })).toBe("file-secret");
+    expect(requestInputWebhookSecret({}, { requestInput: {} })).toBeUndefined();
   });
 });
 

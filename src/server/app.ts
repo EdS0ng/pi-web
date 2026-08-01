@@ -12,8 +12,10 @@ import { pathAccessForCwd } from "./workspaces/effectivePathAccess.js";
 import { loadEffectiveProjectUploadsConfig } from "./workspaces/projectPiWebConfig.js";
 import { normalizeRequestCwd } from "./workingDirectory.js";
 import { listDirectorySuggestions } from "./projects/directorySuggestions.js";
+import { requestInputWebhookSecret } from "../config.js";
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
 import { registerSessionProxyRoutes, type SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
+import { registerRequestInputWebhookRoutes } from "./requestInputWebhookRoutes.js";
 import { registerWorkspaceExplorerRoutes } from "./workspaceExplorerRoutes.js";
 import { registerGitRoutes } from "./gitRoutes.js";
 import { registerTerminalProxyRoutes } from "./terminalProxyRoutes.js";
@@ -41,6 +43,11 @@ export interface AppDependencies {
   logger?: FastifyServerOptions["logger"];
   /** Maximum accepted HTTP request body size in bytes. */
   bodyLimit?: number;
+  /**
+   * Shared secret for the async request_input reply webhook. Defaults to the
+   * PI_WEB_REQUEST_INPUT_SECRET env var; undefined disables the webhook.
+   */
+  requestInputSecret?: string;
 }
 
 interface LocalProjectRouteOptions {
@@ -159,6 +166,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
 
   registerSessionProxyRoutes(app, sessionDaemon);
   registerSessionProxyRoutes(app, sessionDaemon, "/api/machines/local");
+  registerRequestInputWebhookRoutes(app, sessionDaemon, { secret: deps.requestInputSecret ?? requestInputWebhookSecret() });
   registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api", { config: configService });
   registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api/machines/local", { config: configService });
   registerGitRoutes(app, projects, workspaces);

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { normalizeRequestCwd } from "../workingDirectory.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import type { PiSessionRef, PiSessionService } from "./piSessionService.js";
+import { parseReplyBody } from "./requestInputReply.js";
 
 type SessionLookup = string | PiSessionRef;
 
@@ -197,6 +198,18 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: PiSessionS
     }
   });
 
+  // Async request_input reply push (inbox server → pi-web webhook → here).
+  // Statuses match the inbox contract: 404 unknown session (stop retrying),
+  // 409 archived, 400 malformed; the body reports delivered/queued/duplicate.
+  app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown; requestId?: unknown; answer?: unknown; answeredBy?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/request-input/reply`, async (request, reply) => {
+    try {
+      const body = optionalRecord(request.body);
+      return await sessions.deliverRequestInputReply(sessionLookupFromBody(request.params.sessionId, body), parseReplyBody(body));
+    } catch (error) {
+      return reply.code(requestInputReplyErrorStatus(error)).send({ error: errorMessage(error) });
+    }
+  });
+
   app.post<{ Params: { sessionId: string }; Body: { cwd?: unknown } | undefined }>(`${prefix}/sessions/:sessionId/abort`, async (request, reply) => {
     try {
       await sessions.abort(sessionLookupFromBody(request.params.sessionId, optionalRecord(request.body)));
@@ -337,6 +350,19 @@ function errorMessage(error: unknown): string {
 
 function mutationErrorStatus(error: unknown): 400 | 404 {
   return isSessionNotFoundError(error) ? 404 : 400;
+}
+
+// The request_input webhook relays these to the inbox server, which needs to
+// distinguish "stop retrying" (404) from "session archived" (409): archived
+// sessions surface as assertWritable's read-only error.
+function requestInputReplyErrorStatus(error: unknown): 400 | 404 | 409 {
+  if (isSessionNotFoundError(error)) return 404;
+  if (isArchivedSessionError(error)) return 409;
+  return 400;
+}
+
+function isArchivedSessionError(error: unknown): boolean {
+  return errorMessage(error).startsWith("Archived sessions are read-only");
 }
 
 function isSessionNotFoundError(error: unknown): boolean {

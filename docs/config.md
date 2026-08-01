@@ -25,13 +25,14 @@ defaults → global config file → environment overrides
 
 Supported project-local settings are then applied for that project's workspaces. For upload defaults, `<project>/.pi-web/config.json` overrides the global value.
 
-Environment overrides include `PI_WEB_HOST`, `PI_WEB_PORT` / `PORT`, `PI_WEB_ALLOWED_HOSTS`, `PI_WEB_MAX_UPLOAD_BYTES`, `PI_WEB_SESSION_IDLE_TIMEOUT_MS`, `PI_WEB_SPAWN_SESSIONS`, and `PI_WEB_SUBSESSIONS`.
+Environment overrides include `PI_WEB_HOST`, `PI_WEB_PORT` / `PORT`, `PI_WEB_ALLOWED_HOSTS`, `PI_WEB_MAX_UPLOAD_BYTES`, `PI_WEB_SESSION_IDLE_TIMEOUT_MS`, `PI_WEB_SPAWN_SESSIONS`, `PI_WEB_SUBSESSIONS`, and `PI_WEB_REQUEST_INPUT_SECRET`.
 
 Process restarts depend on the key:
 
 - `host` / `port`: restart the web/API service or process.
 - `maxUploadBytes`: restart both the web/API process and the session daemon.
 - `sessionIdleTimeoutMs` / `spawnSessions` / `subsessions`: restart the session daemon.
+- `requestInput.webhookSecret`: restart the web/API process.
 - `pathAccess`: applies on the next request; existing file views may need a browser refresh.
 - `uploads.defaultFolder`: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.
 - `plugins`: reload the browser tab after changing plugin enablement.
@@ -103,6 +104,7 @@ Rows with JSON key `—` are runtime-only environment variables, not config-file
 | Idle session reaping | `sessionIdleTimeoutMs` | `PI_WEB_SESSION_IDLE_TIMEOUT_MS` | Global/session daemon | Not supported locally | Restart session daemon |
 | Agent can spawn sessions | `spawnSessions` | `PI_WEB_SPAWN_SESSIONS` | Global/session daemon | Not supported locally | Restart session daemon |
 | Tracked subsessions (beta) | `subsessions` | `PI_WEB_SUBSESSIONS` | Global/session daemon | Not supported locally; also requires `spawnSessions` | Restart session daemon |
+| Async request_input reply webhook secret | `requestInput.webhookSecret` | `PI_WEB_REQUEST_INPUT_SECRET` | Global | Not supported locally | Restart web/API. Unset disables `POST /api/request-input/reply` (404); the inbox server must echo the secret in the `x-request-input-secret` header |
 | Plugin enablement/settings | `plugins.<id>.enabled`, `plugins.<id>.settings` | — | Global | Not core local config; plugins may read their own project files | Reload browser tab |
 | Keyboard shortcuts | `shortcuts.<actionId>` | — | Global | Not supported locally | Applies after settings save/config refresh |
 | Project config version | `version` | — | Project | Project-local only; must be `1` when present | Next project-config read |

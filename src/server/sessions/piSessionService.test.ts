@@ -795,6 +795,103 @@ describe("PiSessionService", () => {
     await service.dispose();
   });
 
+  describe("deliverRequestInputReply", () => {
+    function replyService(fake: ReturnType<typeof fakeRuntime>, sessionId: string) {
+      return new PiSessionService(new CapturingSessionEventHub(), {
+        createAgentRuntime: runtimeCreator(fake.runtime),
+        sessionManager: sessionGateway([sessionRecord(sessionId)]),
+        heartbeatIntervalMs: 60_000,
+      });
+    }
+
+    it("injects the tagged user message into an idle session and reports delivered", async () => {
+      const fake = fakeRuntime("reply-session");
+      const service = replyService(fake, "reply-session");
+
+      const result = await service.deliverRequestInputReply(sessionRef("reply-session"), { requestId: "req-1", answer: "yes, proceed", answeredBy: "supervisor" });
+
+      expect(result).toEqual({ status: "delivered" });
+      expect(fake.calls.prompt).toEqual([{ text: "[request_input reply requestId=req-1 from=supervisor]\nyes, proceed", options: undefined }]);
+      await service.dispose();
+    });
+
+    it("reports queued while the session is streaming (reply rides the followUp queue)", async () => {
+      const fake = fakeRuntime("busy-reply-session", { isStreaming: true });
+      const service = replyService(fake, "busy-reply-session");
+
+      const result = await service.deliverRequestInputReply(sessionRef("busy-reply-session"), { requestId: "req-1", answer: "yes" });
+
+      expect(result).toEqual({ status: "queued" });
+      expect(fake.calls.prompt).toEqual([{ text: "[request_input reply requestId=req-1 from=user]\nyes", options: { streamingBehavior: "followUp" } }]);
+      await service.dispose();
+    });
+
+    it("dedupes repeat deliveries in-memory without re-injecting", async () => {
+      const fake = fakeRuntime("dedupe-reply-session");
+      const service = replyService(fake, "dedupe-reply-session");
+
+      await service.deliverRequestInputReply(sessionRef("dedupe-reply-session"), { requestId: "req-1", answer: "yes" });
+      const second = await service.deliverRequestInputReply(sessionRef("dedupe-reply-session"), { requestId: "req-1", answer: "yes" });
+
+      expect(second).toEqual({ status: "duplicate" });
+      expect(fake.calls.prompt).toHaveLength(1);
+      await service.dispose();
+    });
+
+    it("dedupes via the persisted marker after a restart (fresh in-memory set)", async () => {
+      const markerEntry = {
+        type: "message",
+        id: "e1",
+        parentId: null,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        message: { role: "user", content: "[request_input reply requestId=req-1 from=user]\nyes" },
+      };
+      const fake = fakeRuntime("restarted-session", {
+        sessionManager: fakeSessionManager("/workspace", { getEntries: () => [markerEntry] }),
+      });
+      const service = replyService(fake, "restarted-session");
+
+      const result = await service.deliverRequestInputReply(sessionRef("restarted-session"), { requestId: "req-1", answer: "yes" });
+      const other = await service.deliverRequestInputReply(sessionRef("restarted-session"), { requestId: "req-2", answer: "no" });
+
+      expect(result).toEqual({ status: "duplicate" });
+      expect(other).toEqual({ status: "delivered" });
+      expect(fake.calls.prompt).toHaveLength(1);
+      await service.dispose();
+    });
+
+    it("rejects archived sessions so the route can reply 409", async () => {
+      const service = new PiSessionService(new CapturingSessionEventHub(), {
+        archiveStore: {
+          list: () => Promise.resolve([]),
+          get: (sessionId) => Promise.resolve(sessionId === "archived" || "archived".startsWith(sessionId)
+            ? { sessionId: "archived", cwd: "/workspace", archivedAt: "2026-01-02T00:00:00.000Z", archivePath: "/archive/archived.jsonl" }
+            : undefined),
+          archive: () => Promise.resolve({ sessionId: "archived", cwd: "/workspace", archivedAt: "2026-01-02T00:00:00.000Z" }),
+          restore: () => Promise.resolve(),
+          isArchived: () => Promise.resolve(true),
+        },
+        sessionManager: sessionGateway([]),
+        heartbeatIntervalMs: 60_000,
+      });
+
+      await expect(service.deliverRequestInputReply(sessionRef("archived"), { requestId: "req-1", answer: "yes" }))
+        .rejects.toThrow("Archived sessions are read-only");
+      await service.dispose();
+    });
+
+    it("rejects unknown sessions so the route can reply 404", async () => {
+      const service = new PiSessionService(new CapturingSessionEventHub(), {
+        sessionManager: sessionGateway([]),
+        heartbeatIntervalMs: 60_000,
+      });
+
+      await expect(service.deliverRequestInputReply(sessionRef("missing"), { requestId: "req-1", answer: "yes" }))
+        .rejects.toThrow("Session not found");
+      await service.dispose();
+    });
+  });
+
   describe("spawnSession", () => {
     function spawnService(decision: SpawnTargetDecision) {
       const fake = fakeRuntime("spawned-1", { sessionFile: "/tmp/spawned-1.jsonl" });

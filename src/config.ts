@@ -156,6 +156,7 @@ function piWebConfigRecord(config: PiWebConfig): Record<string, unknown> {
     ...(config.sessionIdleTimeoutMs !== undefined ? { sessionIdleTimeoutMs: config.sessionIdleTimeoutMs } : {}),
     ...(config.spawnSessions !== undefined ? { spawnSessions: config.spawnSessions } : {}),
     ...(config.subsessions !== undefined ? { subsessions: config.subsessions } : {}),
+    ...(config.requestInput !== undefined ? { requestInput: config.requestInput } : {}),
   };
 }
 
@@ -172,7 +173,29 @@ function parsePiWebConfig(value: Record<string, unknown>, path: string): PiWebCo
     ...(value["sessionIdleTimeoutMs"] !== undefined ? { sessionIdleTimeoutMs: parseSessionIdleTimeoutMs(value["sessionIdleTimeoutMs"], path) } : {}),
     ...(value["spawnSessions"] !== undefined ? { spawnSessions: parseSpawnSessions(value["spawnSessions"], path) } : {}),
     ...(value["subsessions"] !== undefined ? { subsessions: parseSubsessions(value["subsessions"], path) } : {}),
+    ...(value["requestInput"] !== undefined ? { requestInput: parseRequestInputConfig(value["requestInput"], path) } : {}),
   };
+}
+
+function parseRequestInputConfig(value: unknown, path: string): NonNullable<PiWebConfigValues["requestInput"]> {
+  if (!isRecord(value)) throw new Error(`PI WEB config requestInput must be an object: ${path}`);
+  const webhookSecret = value["webhookSecret"];
+  return {
+    ...(webhookSecret !== undefined ? { webhookSecret: parseString(webhookSecret, "requestInput.webhookSecret", path) } : {}),
+  };
+}
+
+/**
+ * Shared secret for the async request_input reply webhook
+ * (`POST /api/request-input/reply`). Undefined disables the webhook (the
+ * route replies 404). Set the env var `PI_WEB_REQUEST_INPUT_SECRET` or the
+ * `requestInput.webhookSecret` config key; the env var takes precedence.
+ */
+export function requestInputWebhookSecret(env: NodeJS.ProcessEnv = process.env, config: PiWebConfig = {}): string | undefined {
+  const fromEnv = env["PI_WEB_REQUEST_INPUT_SECRET"];
+  if (fromEnv !== undefined && fromEnv !== "") return fromEnv;
+  const fromConfig = config.requestInput?.webhookSecret;
+  return fromConfig === undefined || fromConfig === "" ? undefined : fromConfig;
 }
 
 function parseMaxUploadBytes(value: unknown, key: string, path = "environment"): number {

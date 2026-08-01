@@ -60,6 +60,14 @@ export interface PiWebUploadsConfig {
   defaultFolder?: string;
 }
 
+export interface PiWebRequestInputConfig {
+  /**
+   * Shared secret the inbox server must echo in the x-request-input-secret
+   * header when pushing request_input replies. Unset disables the webhook.
+   */
+  webhookSecret?: string;
+}
+
 export interface PiWebConfigValues {
   host?: string;
   port?: number;
@@ -87,6 +95,8 @@ export interface PiWebConfigValues {
    * while the capability stabilizes. Requires spawnSessions to be enabled.
    */
   subsessions?: boolean;
+  /** Async request_input reply webhook (inbox server → pi-web). */
+  requestInput?: PiWebRequestInputConfig;
 }
 
 export type PiWebPluginScope = "bundled" | "local" | "user" | "project";

@@ -28,6 +28,7 @@ import { fallbackSessionName, generateShortSessionName } from "./sessionNameGene
 import { computeEditPreview, type EditPreviewResult } from "./editPreview.js";
 import { createPiSessionManagerGateway } from "./piSessionManagerGateway.js";
 import { attachmentsToInlineImages, saveAttachmentsToWorkspace } from "./attachmentService.js";
+import { formatReplyMessage, hasReplyMarker, type RequestInputReply, type RequestInputReplyStatus } from "./requestInputReply.js";
 import { parsePromptAttachments } from "../../shared/promptAttachments.js";
 import type { SavedPromptAttachment } from "../../shared/apiTypes.js";
 
@@ -333,6 +334,13 @@ export class PiSessionService {
   private readonly commandService: SessionCommandService<PiAgentSession>;
   private readonly webUi: WebExtensionUiService;
   private readonly compactionPromptQueues = new Map<string, QueuedPrompt[]>();
+  /**
+   * `sessionId:requestId` keys of request_input replies already injected this
+   * process. Covers the window where a reply is queued (followUp/compaction)
+   * but not yet persisted; the durable dedupe is the marker line in the
+   * session file itself. Insertion-ordered and capped.
+   */
+  private readonly processedRequestInputReplies = new Set<string>();
   private readonly compactionDrainTimers = new Map<string, NodeJS.Timeout>();
   private readonly authLossWarnings = new Set<string>();
   /** Tracked subsession id -> the parent session id that spawned it. */
@@ -966,6 +974,38 @@ export class PiSessionService {
       return;
     }
     void this.submitPrompt(session, promptText, behavior, images, echoUserMessage);
+  }
+
+  /**
+   * Inject an asynchronous `request_input` reply (pushed by the inbox server
+   * via the pi-web webhook) as a user message. Reuses {@link prompt}, so a
+   * reply that lands while the session is streaming or compacting rides the
+   * existing followUp/compaction queues. Idempotent on requestId: the
+   * in-memory set covers queued-but-unpersisted replies, the marker scan of
+   * the session file covers sessiond restarts.
+   */
+  async deliverRequestInputReply(ref: PiSessionLookup, reply: RequestInputReply): Promise<{ status: RequestInputReplyStatus }> {
+    await this.assertWritable(ref);
+    const session = await this.getOrOpen(ref);
+    const processedKey = `${session.sessionId}:${reply.requestId}`;
+    const entries = session.sessionManager.getEntries?.() ?? session.sessionManager.getBranch();
+    if (this.processedRequestInputReplies.has(processedKey) || hasReplyMarker(entries, reply.requestId)) {
+      return { status: "duplicate" };
+    }
+    this.rememberProcessedRequestInputReply(processedKey);
+    const queued = session.isStreaming || session.isCompacting;
+    await this.prompt(ref, formatReplyMessage(reply));
+    const status: RequestInputReplyStatus = queued ? "queued" : "delivered";
+    this.logger.info({ sessionId: session.sessionId, requestId: reply.requestId, status }, "request_input reply injected");
+    return { status };
+  }
+
+  private rememberProcessedRequestInputReply(key: string): void {
+    this.processedRequestInputReplies.add(key);
+    if (this.processedRequestInputReplies.size > 1000) {
+      const oldest = this.processedRequestInputReplies.values().next().value;
+      if (oldest !== undefined) this.processedRequestInputReplies.delete(oldest);
+    }
   }
 
   private submitPrompt(session: PiAgentSession, text: string, behavior: QueuedPromptKind | undefined, images: ImageContent[] = [], echoUserMessage = true): Promise<void> {

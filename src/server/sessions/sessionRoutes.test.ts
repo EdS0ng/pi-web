@@ -136,12 +136,82 @@ describe("session routes", () => {
       await routeApp.close();
     }
   });
+
+  describe("request-input reply route", () => {
+    async function withRouteService(run: (routeApp: FastifyInstance, routeService: CapturingRouteSessionService) => Promise<void>): Promise<void> {
+      const routeApp = Fastify({ logger: false });
+      await routeApp.register(fastifyWebsocket);
+      const eventHub = new SessionEventHub();
+      const routeService = new CapturingRouteSessionService(eventHub);
+      registerSessionRoutes(routeApp, routeService, eventHub);
+      try {
+        await run(routeApp, routeService);
+      } finally {
+        await routeService.dispose();
+        await routeApp.close();
+      }
+    }
+
+    it("delivers a parsed reply and returns the service status", async () => {
+      await withRouteService(async (routeApp, routeService) => {
+        const response = await routeApp.inject({
+          method: "POST",
+          url: "/sessions/session-1/request-input/reply",
+          payload: { kind: "request_input.reply", version: 1, requestId: "req-1", sessionId: "session-1", answer: "yes", answeredBy: "user" },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual({ status: "delivered" });
+        expect(routeService.requestInputReplies).toEqual([{ lookup: "session-1", reply: { requestId: "req-1", answer: "yes", answeredBy: "user" } }]);
+      });
+    });
+
+    it("rejects malformed reply bodies with 400 before touching the service", async () => {
+      await withRouteService(async (routeApp, routeService) => {
+        const response = await routeApp.inject({ method: "POST", url: "/sessions/session-1/request-input/reply", payload: { answer: "yes" } });
+
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toEqual({ error: "requestId field must be a non-empty string" });
+        expect(routeService.requestInputReplies).toEqual([]);
+      });
+    });
+
+    it("maps unknown sessions to 404", async () => {
+      await withRouteService(async (routeApp, routeService) => {
+        routeService.requestInputReplyError = new Error("Session not found");
+        const response = await routeApp.inject({
+          method: "POST",
+          url: "/sessions/missing/request-input/reply",
+          payload: { requestId: "req-1", answer: "yes" },
+        });
+
+        expect(response.statusCode).toBe(404);
+        expect(response.json()).toEqual({ error: "Session not found" });
+      });
+    });
+
+    it("maps archived sessions to 409", async () => {
+      await withRouteService(async (routeApp, routeService) => {
+        routeService.requestInputReplyError = new Error("Archived sessions are read-only. Restore the session to continue.");
+        const response = await routeApp.inject({
+          method: "POST",
+          url: "/sessions/archived/request-input/reply",
+          payload: { requestId: "req-1", answer: "yes" },
+        });
+
+        expect(response.statusCode).toBe(409);
+        expect(response.json()).toEqual({ error: "Archived sessions are read-only. Restore the session to continue." });
+      });
+    });
+  });
 });
 
 class CapturingRouteSessionService extends PiSessionService {
   readonly calls: unknown[] = [];
   readonly reloadCalls: (string | PiSessionRef)[] = [];
   reloadError: Error | undefined;
+  readonly requestInputReplies: { lookup: string | PiSessionRef; reply: unknown }[] = [];
+  requestInputReplyError: Error | undefined;
 
   constructor(eventHub: SessionEventHub) {
     super(eventHub, { sessionManager: new RejectingSessionManager(), heartbeatIntervalMs: 60_000 });
@@ -151,6 +221,12 @@ class CapturingRouteSessionService extends PiSessionService {
     this.reloadCalls.push(lookup);
     if (this.reloadError !== undefined) return Promise.reject(this.reloadError);
     return Promise.resolve();
+  }
+
+  override deliverRequestInputReply(lookup: string | PiSessionRef, reply: unknown): Promise<{ status: "delivered" | "queued" | "duplicate" }> {
+    if (this.requestInputReplyError !== undefined) return Promise.reject(this.requestInputReplyError);
+    this.requestInputReplies.push({ lookup, reply });
+    return Promise.resolve({ status: "delivered" });
   }
 
   override status(lookup: string | PiSessionRef) {
