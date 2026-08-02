@@ -22,6 +22,21 @@ export async function isGitRepository(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * Absolute path of the work tree root containing `path`, or undefined when `path` is not inside a
+ * git work tree. Note that `path` may be nested well below the returned root — callers that need
+ * `path` itself to be the root must compare the two.
+ */
+export async function gitToplevel(path: string): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync("git", ["-C", path, "rev-parse", "--show-toplevel"], { env: sanitizedGitEnv() });
+    const toplevel = stdout.trim();
+    return toplevel === "" ? undefined : toplevel;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function discoverGitWorktrees(path: string): Promise<GitWorktreeInfo[]> {
   const { stdout } = await execFileAsync("git", ["-C", path, "worktree", "list", "--porcelain"], { env: sanitizedGitEnv() });
   return parseGitWorktreeList(stdout);
