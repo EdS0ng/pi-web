@@ -26,6 +26,8 @@ export interface SessionServiceDependencyInput {
   askUserEnabled: boolean;
   /** Auto-cancel delay for extension dialogs whose extension set no timeout; `0` waits forever. */
   extensionDialogsTimeoutMs: number;
+  /** Idle time before an inactive runtime is reaped; omitted to take the service default, `0` disables. */
+  idleSessionTimeoutMs?: number;
 }
 
 /**
@@ -51,6 +53,7 @@ export function sessionServiceDependencies(input: SessionServiceDependencyInput)
     subsessionsEnabled: input.spawnTargets !== undefined && input.subsessionsEnabled,
     askUserEnabled: input.askUserEnabled,
     extensionDialogsTimeoutMs: input.extensionDialogsTimeoutMs,
+    ...(input.idleSessionTimeoutMs === undefined ? {} : { idleSessionTimeoutMs: input.idleSessionTimeoutMs }),
     notificationStore: input.notificationStore,
     unreadStore: input.unreadStore,
     // Read-only, so session startup can tell a waiting user that provider

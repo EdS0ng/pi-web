@@ -217,6 +217,7 @@ function piWebConfigRecord(config: PiWebConfig): Record<string, unknown> {
     ...(config.pathAccess !== undefined ? { pathAccess: config.pathAccess } : {}),
     ...(config.uploads !== undefined ? { uploads: config.uploads } : {}),
     ...(config.maxUploadBytes !== undefined ? { maxUploadBytes: config.maxUploadBytes } : {}),
+    ...(config.sessionIdleTimeoutMs !== undefined ? { sessionIdleTimeoutMs: config.sessionIdleTimeoutMs } : {}),
     ...(config.spawnSessions !== undefined ? { spawnSessions: config.spawnSessions } : {}),
     ...(config.subsessions !== undefined ? { subsessions: config.subsessions } : {}),
     ...(config.askUser !== undefined ? { askUser: config.askUser } : {}),
@@ -234,6 +235,7 @@ function parsePiWebConfig(value: Record<string, unknown>, path: string): PiWebCo
     ...(value["pathAccess"] !== undefined ? { pathAccess: parsePathAccessConfig(value["pathAccess"], path) } : {}),
     ...(value["uploads"] !== undefined ? { uploads: parseUploadsConfig(value["uploads"], path) } : {}),
     ...(value["maxUploadBytes"] !== undefined ? { maxUploadBytes: parseMaxUploadBytes(value["maxUploadBytes"], "maxUploadBytes", path) } : {}),
+    ...(value["sessionIdleTimeoutMs"] !== undefined ? { sessionIdleTimeoutMs: parseSessionIdleTimeoutMs(value["sessionIdleTimeoutMs"], path) } : {}),
     ...(value["spawnSessions"] !== undefined ? { spawnSessions: parseSpawnSessions(value["spawnSessions"], path) } : {}),
     ...(value["subsessions"] !== undefined ? { subsessions: parseSubsessions(value["subsessions"], path) } : {}),
     ...(value["askUser"] !== undefined ? { askUser: parseAskUser(value["askUser"], path) } : {}),
@@ -294,6 +296,29 @@ function parseExtensionDialogsTimeoutMs(value: unknown, path: string): number {
     throw new Error(`PI WEB config extensionDialogsTimeoutMs must be a non-negative integer: ${path}`);
   }
   return value;
+}
+
+function parseSessionIdleTimeoutMs(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new Error(`PI WEB config sessionIdleTimeoutMs must be a non-negative integer: ${path}`);
+  }
+  return value;
+}
+
+/**
+ * How long (ms) an idle session runtime may stay in session-daemon memory before it is closed.
+ * Session state is persisted, so a reaped session reopens from its file on the next use; reaping
+ * only bounds the memory idle runtimes hold. Undefined applies the session service's built-in
+ * default; `0` disables reaping. Set the env var `PI_WEB_SESSION_IDLE_TIMEOUT_MS` or the
+ * `sessionIdleTimeoutMs` config key; the env var takes precedence over the config file.
+ */
+export function sessionIdleTimeoutMs(env: NodeJS.ProcessEnv = process.env, config: PiWebConfig = {}): number | undefined {
+  const fromEnv = env["PI_WEB_SESSION_IDLE_TIMEOUT_MS"];
+  if (fromEnv !== undefined && fromEnv !== "") {
+    const parsed = Number(fromEnv);
+    if (Number.isInteger(parsed) && parsed >= 0) return parsed;
+  }
+  return config.sessionIdleTimeoutMs;
 }
 
 /**

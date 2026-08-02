@@ -33,13 +33,13 @@ defaults → global config file → environment overrides
 
 Supported project-local settings are then applied for that project's workspaces. For upload defaults, `<project>/.pi-web/config.json` overrides the global value.
 
-Environment overrides include `PI_WEB_HOST`, `PI_WEB_PORT` / `PORT`, `PI_WEB_ALLOWED_HOSTS`, `PI_WEB_MAX_UPLOAD_BYTES`, `PI_WEB_AGENT_COMMAND`, `PI_WEB_AGENT_DIR`, `PI_WEB_AGENT_SESSION_DIR`, `PI_CODING_AGENT_DIR` / `PI_CODING_AGENT_SESSION_DIR` for Pi compatibility, `PI_WEB_SPAWN_SESSIONS`, `PI_WEB_SUBSESSIONS`, and `PI_WEB_ASK_USER`.
+Environment overrides include `PI_WEB_HOST`, `PI_WEB_PORT` / `PORT`, `PI_WEB_ALLOWED_HOSTS`, `PI_WEB_MAX_UPLOAD_BYTES`, `PI_WEB_AGENT_COMMAND`, `PI_WEB_AGENT_DIR`, `PI_WEB_AGENT_SESSION_DIR`, `PI_CODING_AGENT_DIR` / `PI_CODING_AGENT_SESSION_DIR` for Pi compatibility, `PI_WEB_SESSION_IDLE_TIMEOUT_MS`, `PI_WEB_SPAWN_SESSIONS`, `PI_WEB_SUBSESSIONS`, and `PI_WEB_ASK_USER`.
 
 Process restarts depend on the key:
 
 - `host` / `port`: restart the gateway web/API service or process.
 - `maxUploadBytes`: restart both the web/API process and the session daemon on that machine.
-- `agent.command` / `agent.dir` / `spawnSessions` / `subsessions` / `askUser` / `extensionDialogsTimeoutMs`: restart the session daemon on that machine.
+- `agent.command` / `agent.dir` / `sessionIdleTimeoutMs` / `spawnSessions` / `subsessions` / `askUser` / `extensionDialogsTimeoutMs`: restart the session daemon on that machine.
 - `pathAccess`: applies on the next request; existing file views may need a browser refresh.
 - `uploads.defaultFolder`: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.
 - `plugins`: reload the browser tab after changing PI WEB plugin enablement.
@@ -59,6 +59,7 @@ Process restarts depend on the key:
     "defaultFolder": ".pi-web/uploads"
   },
   "maxUploadBytes": 67108864,
+  "sessionIdleTimeoutMs": 1800000,
   "agent": {
     "command": "pi",
     "dir": "~/agent-profiles/research"
@@ -116,6 +117,7 @@ Rows with JSON key `—` are runtime-only environment variables, not config-file
 | Upload/body limit | `maxUploadBytes` | `PI_WEB_MAX_UPLOAD_BYTES` | Global | Not supported locally | Restart web/API and session daemon on that machine |
 | Companion CLI command | `agent.command` | `PI_WEB_AGENT_COMMAND` | Global/session daemon | Not supported locally | Restart session daemon on that machine; affects doctor/status/update checks |
 | Agent profile state directory | `agent.dir` | `PI_WEB_AGENT_DIR` (`PI_CODING_AGENT_DIR` for Pi compatibility) | Global/session daemon | Not supported locally | Restart session daemon on that machine; affects auth, models, settings, sessions, Pi packages, and Pi-package-backed PI WEB plugins |
+| Idle session reaping | `sessionIdleTimeoutMs` | `PI_WEB_SESSION_IDLE_TIMEOUT_MS` | Global/session daemon | Not supported locally | Restart session daemon on that machine |
 | Agent can spawn sessions | `spawnSessions` | `PI_WEB_SPAWN_SESSIONS` | Global/session daemon | Not supported locally | Restart session daemon on that machine |
 | Tracked subsessions (beta) | `subsessions` | `PI_WEB_SUBSESSIONS` | Global/session daemon | Not supported locally; also requires `spawnSessions` | Restart session daemon on that machine |
 | Agent can post question forms | `askUser` | `PI_WEB_ASK_USER` | Global/session daemon | Not supported locally | Restart session daemon on that machine |
@@ -300,6 +302,16 @@ Pi extensions can ask the user questions from `ctx.ui.confirm()`, `ctx.ui.select
 `extensionDialogsTimeoutMs` is the unattended-dialog safety valve: how long the session daemon waits for an answer before settling the dialog with its kind's cancel value (`false` for confirm, `undefined` for select and input). It defaults to `300000` (5 minutes); set it to `0` to wait forever. An extension's own `timeout` option still applies, and the effective deadline is the sooner of the two.
 
 The key is edited directly in the global config file. Restart the session daemon after changing it — for the systemd user service, run `systemctl --user restart pi-web-sessiond`.
+
+### Idle session reaping
+
+`sessionIdleTimeoutMs` controls how long an inactive session runtime stays in session-daemon memory. Session state is persisted to the session file as it changes, so a reaped session reopens transparently on its next message or lookup; reaping only bounds memory growth.
+
+A session is reaped only when it has been idle for the whole timeout *and* has nothing outstanding: sessions with in-flight work (streaming, compacting, running bash, queued messages), an open [extension dialog](#extension-dialogs), or an open [`ask_user` question](#askuser-and-ask_user) are never reaped, because closing the runtime would settle the dialog or drop the question the human is being asked to answer.
+
+Reaping closes the runtime exactly as stopping a session does, so — like any other runtime close — it clears that session's in-memory notification inbox. Durable unread state is kept, so unread rings survive.
+
+The default is 30 minutes (`1800000`). Set `0` to disable reaping and keep every opened session in memory until the daemon restarts. The environment variable `PI_WEB_SESSION_IDLE_TIMEOUT_MS` takes precedence over the config key.
 
 ### Plugin config
 

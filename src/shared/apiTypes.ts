@@ -89,6 +89,12 @@ export interface PiWebConfigValues {
   uploads?: PiWebUploadsConfig;
   /** Maximum accepted HTTP request body size in bytes (uploads/attachments). */
   maxUploadBytes?: number;
+  /**
+   * Idle time in milliseconds before the session daemon closes an inactive
+   * in-memory session runtime (it reopens from its session file on next use).
+   * 0 disables idle reaping; unset uses the built-in default.
+   */
+  sessionIdleTimeoutMs?: number;
   /** When true, LLMs can start new sessions via the spawn_session tool. */
   spawnSessions?: boolean;
   /**

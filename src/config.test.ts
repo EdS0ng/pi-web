@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_UPLOADS_FOLDER, agentDirEnvSource, agentSessionDirEnvKeys, askUserEnabled, effectiveAgentConfig, effectivePiWebConfig, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, maxUploadBytes, offlineModeEnabled, savePiWebConfig, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
+import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS, DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_UPLOADS_FOLDER, agentDirEnvSource, agentSessionDirEnvKeys, askUserEnabled, effectiveAgentConfig, effectivePiWebConfig, hasAgentDirEnvOverride, hasAgentSessionDirEnvOverride, loadPiWebConfig, maxUploadBytes, offlineModeEnabled, savePiWebConfig, sessionIdleTimeoutMs, spawnSessionsEnabled, subsessionsEnabled } from "./config.js";
 
 let tempDir: string;
 let configPath: string;
@@ -76,6 +76,20 @@ describe("PI WEB config persistence", () => {
       await writeFile(configPath, `${JSON.stringify({ extensionDialogsTimeoutMs: value }, null, 2)}\n`, "utf8");
 
       expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config extensionDialogsTimeoutMs must be a non-negative integer");
+    }
+  });
+
+  it("persists and reads sessionIdleTimeoutMs, including zero for disabling reaping", () => {
+    savePiWebConfig({ sessionIdleTimeoutMs: 0 }, testOptions());
+
+    expect(loadPiWebConfig(testOptions()).config.sessionIdleTimeoutMs).toBe(0);
+  });
+
+  it("rejects an invalid sessionIdleTimeoutMs", async () => {
+    for (const value of [-1, 1.5, "5000", null]) {
+      await writeFile(configPath, `${JSON.stringify({ sessionIdleTimeoutMs: value }, null, 2)}\n`, "utf8");
+
+      expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config sessionIdleTimeoutMs must be a non-negative integer");
     }
   });
 
@@ -248,6 +262,28 @@ describe("extensionDialogsTimeoutMs", () => {
     await writeFile(configPath, `${JSON.stringify({ extensionDialogsTimeoutMs: 0 }, null, 2)}\n`, "utf8");
 
     expect(effectivePiWebConfig(testOptions()).config.extensionDialogsTimeoutMs).toBe(0);
+  });
+});
+
+describe("sessionIdleTimeoutMs", () => {
+  it("is undefined when nothing is configured, so the service default applies", () => {
+    expect(sessionIdleTimeoutMs({}, {})).toBeUndefined();
+  });
+
+  it("reads the config key, including zero for disabling reaping", () => {
+    expect(sessionIdleTimeoutMs({}, { sessionIdleTimeoutMs: 60_000 })).toBe(60_000);
+    expect(sessionIdleTimeoutMs({}, { sessionIdleTimeoutMs: 0 })).toBe(0);
+  });
+
+  it("lets the environment override the config key", () => {
+    expect(sessionIdleTimeoutMs({ PI_WEB_SESSION_IDLE_TIMEOUT_MS: "5000" }, { sessionIdleTimeoutMs: 60_000 })).toBe(5000);
+    expect(sessionIdleTimeoutMs({ PI_WEB_SESSION_IDLE_TIMEOUT_MS: "0" }, { sessionIdleTimeoutMs: 60_000 })).toBe(0);
+  });
+
+  it("falls back to the config key when the environment value is unusable", () => {
+    for (const value of ["", "not-a-number", "-1", "1.5"]) {
+      expect(sessionIdleTimeoutMs({ PI_WEB_SESSION_IDLE_TIMEOUT_MS: value }, { sessionIdleTimeoutMs: 60_000 })).toBe(60_000);
+    }
   });
 });
 

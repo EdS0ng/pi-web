@@ -95,6 +95,12 @@ export interface PiSessionLogger {
 const noopLogger: PiSessionLogger = { info() { /* no-op */ } };
 const DEFAULT_UNREAD_PUBLICATION_RETRY_MS = 1_000;
 /**
+ * Default idle time before an in-memory session runtime is reaped. Session
+ * state is persisted to the session file as it changes, so reaped sessions
+ * reopen transparently on their next use.
+ */
+export const DEFAULT_IDLE_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+/**
  * User-facing names for the two phases of session startup PI WEB can prove it
  * is inside: it awaits exactly one call for each, so the phase is a fact rather
  * than a guess. Deliberately free of internal symbol names and file paths.
@@ -740,6 +746,13 @@ export interface PiSessionServiceDependencies {
   createAgentRuntime?: CreateAgentRuntime;
   modelRuntime: ModelRuntime;
   heartbeatIntervalMs?: number;
+  /**
+   * Idle time (ms) after which an in-memory session runtime is closed. The
+   * session file holds all state, so a reaped session reopens on its next use;
+   * reaping only bounds the memory held by inactive runtimes. 0 disables
+   * reaping. Defaults to {@link DEFAULT_IDLE_SESSION_TIMEOUT_MS}.
+   */
+  idleSessionTimeoutMs?: number;
   workspaceActivity?: Pick<WorkspaceActivityService, "applySessionStatus" | "applySessionActivity" | "removeSession" | "reconcileSessionActivity">;
   /**
    * When provided, `spawn_session` is available to sessions whose creation
@@ -807,6 +820,7 @@ export class PiSessionService implements SessionRouteService {
   private readonly startupSessions = new Map<string, PiAgentSession>();
   private readonly activities = new Map<string, { phase: "active" | "idle" | "error"; label: string; detail?: string; at: string }>();
   private readonly heartbeat: NodeJS.Timeout;
+  private readonly idleSessionTimeoutMs: number;
   private readonly commandService: SessionCommandService<PiAgentSession>;
   /** Runtime-identity gate held while Pi may await abandoned-branch summarization. */
   private readonly treeNavigations = new WeakSet<PiAgentSession>();
@@ -902,7 +916,11 @@ export class PiSessionService implements SessionRouteService {
     );
     this.createAgentRuntime = deps.createAgentRuntime ?? defaultCreateAgentRuntime;
     this.workspaceActivity = deps.workspaceActivity;
-    this.heartbeat = setInterval(() => { this.publishHeartbeats(); }, deps.heartbeatIntervalMs ?? 2000);
+    this.idleSessionTimeoutMs = deps.idleSessionTimeoutMs ?? DEFAULT_IDLE_SESSION_TIMEOUT_MS;
+    this.heartbeat = setInterval(() => {
+      this.publishHeartbeats();
+      this.reapIdleSessions();
+    }, deps.heartbeatIntervalMs ?? 2000);
     this.commandService = new SessionCommandService(
       (sessionId) => this.getActive(sessionId),
       (sessionId, text) => this.prompt(sessionId, text, undefined, undefined, { echoUserMessage: false }),
@@ -2817,6 +2835,13 @@ export class PiSessionService implements SessionRouteService {
   }
 
   private activeForLookup(ref: PiSessionLookup): ActiveSession<PiSessionRuntime> | undefined {
+    const active = this.findActiveForLookup(ref);
+    // Every lookup counts as activity so sessions in use are not reaped.
+    if (active !== undefined) active.lastActivityAt = Date.now();
+    return active;
+  }
+
+  private findActiveForLookup(ref: PiSessionLookup): ActiveSession<PiSessionRuntime> | undefined {
     const sessionId = sessionIdFromLookup(ref);
     const exact = this.active.get(sessionId);
     if (exact !== undefined && lookupMatchesActiveSession(ref, exact)) return exact;
@@ -2885,7 +2910,7 @@ export class PiSessionService implements SessionRouteService {
       ...(options.initialModel === undefined ? {} : { initialModel: options.initialModel }),
       ...(options.initialThinkingLevel === undefined ? {} : { initialThinkingLevel: options.initialThinkingLevel }),
     });
-    const active: ActiveSession<PiSessionRuntime> = { runtime, unsubscribe: noop };
+    const active: ActiveSession<PiSessionRuntime> = { runtime, unsubscribe: noop, lastActivityAt: Date.now() };
     let boundSession = runtime.session;
     let notificationGeneration = options.notificationGeneration;
     let notificationOwnership: "disabled" | "external" | "registered" | "replacement" = options.notifications === "disabled"
@@ -3220,6 +3245,7 @@ export class PiSessionService implements SessionRouteService {
       }
     }
     active.unsubscribe = session.subscribe((event) => {
+      active.lastActivityAt = Date.now();
       this.events.publish(session.sessionId, toClientEvent(event, session.thinkingLevel));
       this.publishActivityForEvent(session, event);
       const eventType = getString(event, "type");
@@ -3388,6 +3414,30 @@ export class PiSessionService implements SessionRouteService {
       : { type: "session.name", sessionId: session.sessionId, name: session.sessionName } as const;
     this.events.publish(session.sessionId, event);
     this.events.publishGlobal(event);
+  }
+
+  /**
+   * Close runtimes that have seen no lookups or session events for the idle timeout. Session state
+   * is persisted, so a reaped session reopens from its file on the next lookup; reaping only bounds
+   * the memory idle runtimes hold.
+   */
+  private reapIdleSessions(): void {
+    if (this.idleSessionTimeoutMs <= 0) return;
+    const now = Date.now();
+    for (const [sessionId, active] of this.active.entries()) {
+      const idleMs = now - active.lastActivityAt;
+      if (idleMs < this.idleSessionTimeoutMs) continue;
+      // Never reap mid-work, and never reap a session that is waiting on a human: closeActive
+      // settles open extension dialogs and drops an open ask outright, so reaping either would
+      // destroy the very thing the human is being asked to answer.
+      if (this.hasActiveWork(active.runtime.session)) continue;
+      if (this.pendingExtensionDialogStore.pendingDialogs(sessionId).length > 0) continue;
+      if (this.pendingAskStore.pendingAsk(sessionId) !== undefined) continue;
+      this.logger.info({ sessionId, idleMs }, "reaping idle session runtime");
+      void this.closeActive(sessionId).catch(() => {
+        // Best-effort like stop(); the runtime is already out of the active map.
+      });
+    }
   }
 
   private publishHeartbeats(): void {

@@ -25,7 +25,7 @@ import { TerminalService } from "./terminals/terminalService.js";
 import { registerTerminalRoutes } from "./terminals/terminalRoutes.js";
 import { getPiWebRuntimeComponent } from "./piWebStatus.js";
 import { SESSIOND_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
-import { agentSessionDirEnvKeys, effectivePiWebConfig, maxUploadBytes, offlineModeEnabled } from "../config.js";
+import { agentSessionDirEnvKeys, effectivePiWebConfig, maxUploadBytes, offlineModeEnabled, sessionIdleTimeoutMs } from "../config.js";
 import { createActiveAgentProfileDescriptor } from "../sessiond/activeAgentProfile.js";
 import { sessionServiceDependencies } from "./sessiond/sessionServiceDependencies.js";
 
@@ -78,6 +78,7 @@ async function createSessionDaemonRuntime() {
   const projectWorkspaceDeps = { projects: new ProjectService(new ProjectStore()), workspaces: new WorkspaceService() };
   const projectWorkspaces = new RegisteredProjectWorkspaceCwds(projectWorkspaceDeps);
   const spawnTargets = config.spawnSessions ? new ProjectScopedSpawnTargetResolver(projectWorkspaceDeps) : undefined;
+  const idleSessionTimeout = sessionIdleTimeoutMs(daemonEnvironment, config);
   const sessions = new PiSessionService(eventHub, sessionServiceDependencies({
     modelRuntime: auth.runtime,
     agentDir: activeAgentProfile.dir,
@@ -88,6 +89,7 @@ async function createSessionDaemonRuntime() {
     subsessionsEnabled: config.subsessions,
     askUserEnabled: config.askUser,
     extensionDialogsTimeoutMs: config.extensionDialogsTimeoutMs,
+    ...(idleSessionTimeout === undefined ? {} : { idleSessionTimeoutMs: idleSessionTimeout }),
     notificationStore,
     unreadStore,
     catalogRefreshStatus: catalogRefresher,
