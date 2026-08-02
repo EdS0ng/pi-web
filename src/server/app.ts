@@ -17,6 +17,7 @@ import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
 import { registerSessionProxyRoutes, type SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
 import { registerWorkspaceExplorerRoutes } from "./workspaceExplorerRoutes.js";
 import { registerGitRoutes } from "./gitRoutes.js";
+import { createCodexAuthProvider, registerTranscriptionRoutes, type CodexAuthProvider } from "./transcriptionRoutes.js";
 import { registerTerminalProxyRoutes } from "./terminalProxyRoutes.js";
 import { registerWorkspaceDeletionRoutes } from "./workspaces/workspaceDeletionRoutes.js";
 import { createFilePiWebConfigService, registerConfigRoutes, registerLocalMachineConfigRoutes, type PiWebConfigService } from "./configRoutes.js";
@@ -47,6 +48,7 @@ export interface AppDependencies {
   piPackages?: PiPackageService;
   piWebStatusCache?: PiWebStatusCache;
   config?: PiWebConfigService;
+  codexAuth?: CodexAuthProvider;
   clientDist?: string | false;
   logger?: FastifyServerOptions["logger"];
   /** Maximum accepted HTTP request body size in bytes. */
@@ -214,6 +216,18 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const invalidatingConfigService = invalidatePiWebStatusOnWrite(configService, piWebStatusCache);
   registerConfigRoutes(app, invalidatingConfigService);
   registerLocalMachineConfigRoutes(app, invalidatingConfigService);
+  // Local-only: the Codex token lives on this machine, so there is nothing to
+  // federate and no `/api/machines/local` alias for the client to reach. The
+  // credential is read from the active agent profile, so a custom `agent.dir`
+  // is honored.
+  registerTranscriptionRoutes(app, {
+    codexAuth: deps.codexAuth ?? createCodexAuthProvider({
+      agentDir: async () => {
+        const active = await agentProfileProvider.getActiveAgentProfile();
+        return active.status === "available" ? active.profile.dir : undefined;
+      },
+    }),
+  });
 
   registerMachineRoutes(app, machines);
   registerMachinePluginProxyRoutes(app, machines);

@@ -4,10 +4,16 @@ test("terminal starts a shell that executes a command", async ({ page, stack }) 
   await page.goto(stack.appUrl({ view: "chat" }));
 
   // Open the Terminal tool through the UI like a user would.
-  await openWorkspaceTool(page, "Terminal");
+  const terminalPanel = await openWorkspaceTool(page, "Terminal");
 
-  const terminalPanel = page.locator("terminal-panel");
-  await terminalPanel.getByRole("button", { name: "+ Shell" }).click();
+  // Opening the tool auto-starts a shell, so wait for that before adding one.
+  // Only the selected shell's xterm is mounted; starting a second shell swaps
+  // the visible terminal out from under the keystrokes below.
+  const shells = terminalPanel.getByRole("button", { name: /^Shell \d+/u });
+  await shells.first().waitFor({ state: "visible", timeout: 10_000 }).catch(async () => {
+    await terminalPanel.getByRole("button", { name: "+ Shell" }).click();
+  });
+  await expect(shells.first()).toBeVisible();
 
   const xterm = terminalPanel.locator(".xterm").first();
   await xterm.click();

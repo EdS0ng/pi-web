@@ -38,6 +38,16 @@ export function renderSteerIcon(): TemplateResult {
   return renderSendIcon();
 }
 
+export function renderMicIcon(): TemplateResult {
+  return svg`
+    <svg class="prompt-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="9" y="3" width="6" height="11" rx="3"></rect>
+      <path d="M5 11a7 7 0 0 0 14 0"></path>
+      <path d="M12 18v3"></path>
+    </svg>
+  `;
+}
+
 export function renderStopIcon(): TemplateResult {
   return svg`
     <svg class="prompt-action-icon prompt-action-icon-filled" viewBox="0 0 24 24" aria-hidden="true" focusable="false">

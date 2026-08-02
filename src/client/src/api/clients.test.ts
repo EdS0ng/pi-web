@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
 import type { PiWebConfigValues, TerminalCommandRun, Workspace } from "../../../shared/apiTypes";
-import { configApi, filesApi, machinesApi, piPackagesApi, piWebApi, pluginsApi, sessionsApi, terminalsApi, workspacesApi } from "./clients";
+import { configApi, filesApi, machinesApi, piPackagesApi, piWebApi, pluginsApi, sessionsApi, terminalsApi, transcribeApi, workspacesApi } from "./clients";
 
 const workspace: Workspace = {
   id: "w/1",
@@ -579,6 +579,25 @@ describe("workspace file write API", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url] = fetchCall(fetchMock, 0);
     expect(url).toContain("api/machines/remote%20a/");
+  });
+});
+
+describe("transcription API", () => {
+  it("posts the audio blob to api/transcribe as octet-stream with the ext query", async () => {
+    const fetchMock = stubJsonFetch({ text: "hello world" });
+    const audio = new Blob([new Uint8Array([1, 2, 3])], { type: "audio/webm" });
+
+    const result = await transcribeApi.transcribe(audio, "webm");
+
+    expect(result).toEqual({ text: "hello world" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchCall(fetchMock, 0);
+    // No machine prefix: the Codex token lives on the machine serving the app.
+    expect(url).toContain("api/transcribe?ext=webm");
+    expect(url).not.toContain("api/machines/");
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBe(audio);
+    expect(new Headers(init?.headers).get("content-type")).toBe("application/octet-stream");
   });
 });
 
